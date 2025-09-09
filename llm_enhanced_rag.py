@@ -528,7 +528,7 @@ Provide a direct, factual answer focusing specifically on what the search query 
 # Example usage
 if __name__ == "__main__":
     # Initialize components
-    GOOGLE_API_KEY = "AIzaSyAUFUq_6OHjo1UNWdFxsXZi5AB8HSnt0DU"  # Replace with your actual API key
+    GOOGLE_API_KEY = ""  # Replace with your actual API key
     
 
     
@@ -619,4 +619,5 @@ if __name__ == "__main__":
         print("- Only 5 search angles processed per minute (Gemini rate limit)")
         print("- Each angle gets its own LLM-enhanced answer")
         print("- System automatically waits when rate limit is reached")
+
         print("- Ready for Step 4B evaluation of the individual answers")
