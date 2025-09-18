@@ -1,0 +1,7 @@
+pycache/
+uploads/
+chroma_db/
+__pycache__/
+.env
+.DS_Store
+.vscode/

@@ -1,0 +1,16 @@
+langchain==0.0.335
+langchain-google-genai==0.0.6
+langchain-huggingface==0.0.1
+langchain-community==0.0.8
+
+# Vector database
+chromadb==0.4.17
+
+# Embeddings and transformers
+sentence-transformers==2.2.2
+transformers==4.35.2
+torch==2.1.1
+
+# PDF processing
+PyMuPDF==1.23.8
+pdfplumber==0.10.3
