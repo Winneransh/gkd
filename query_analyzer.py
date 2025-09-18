@@ -359,7 +359,7 @@ User Query: "{user_query}"
 # Example usage
 if __name__ == "__main__":
     # Initialize both classifier and analyzer
-    GOOGLE_API_KEY = ""  # Replace with your actual API key
+    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
     
     if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
         print("Please set your Google API key")

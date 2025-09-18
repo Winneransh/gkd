@@ -3,6 +3,7 @@ consensus_evaluator.py
 
 Step 4B: Evaluates consensus across search angle answers, determines confidence scores,
 and provides intelligent final verdicts considering search angle quality.
+Updated to be compatible with HuggingFace embeddings pipeline.
 """
 
 import json
@@ -22,23 +23,28 @@ class ConsensusEvaluator:
     """
     Evaluates consensus across multiple search angle answers and provides intelligent
     final verdicts considering search angle quality and answer consistency.
+    Compatible with HuggingFace embeddings pipeline.
     """
     
-    def __init__(self, google_api_keys: List[str]):
+    def __init__(self, google_api_keys: List[str], embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the consensus evaluator with multiple API keys for rate limit handling.
         
         Args:
             google_api_keys: List of Google API keys to rotate through
+            embedding_model: HuggingFace embedding model name (for compatibility tracking)
         """
         self.google_api_keys = google_api_keys
         self.current_key_index = 0
+        self.embedding_model_name = embedding_model  # Track for pipeline compatibility
         
-        # Initialize Gemini 2.5 Flash LLM with first key
+        # Initialize Gemini 2.0 Flash LLM with first key
         self.llm = self._get_llm_instance()
         
         # Create consensus evaluation prompt
         self.consensus_prompt = self._create_consensus_evaluation_prompt()
+        
+        logger.info(f"Consensus Evaluator initialized with embedding model compatibility: {embedding_model}")
     
     def _get_llm_instance(self) -> ChatGoogleGenerativeAI:
         """
@@ -49,7 +55,7 @@ class ConsensusEvaluator:
         """
         current_key = self.google_api_keys[self.current_key_index]
         return ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash",  # Updated to match other components
             google_api_key=current_key,
             temperature=0.1,
             max_output_tokens=6144
@@ -185,7 +191,7 @@ Provide your evaluation in the following JSON structure:
       "A1": {{"relevance": "high|medium|low", "answer_quality": "assessment"}},
       "A2": {{"relevance": "high|medium|low", "answer_quality": "assessment"}},
       "A3": {{"relevance": "high|medium|low", "answer_quality": "assessment"}},
-      "A4": {{"relevance": "high|medium|low", "answer_quality": "assessment"}},
+      "A4": {{"relev": "high|medium|low", "answer_quality": "assessment"}},
       "A5": {{"relevance": "high|medium|low", "answer_quality": "assessment"}}
     }},
     "consensus_breakdown": "detailed explanation of how consensus was determined",
@@ -230,16 +236,20 @@ Provide your evaluation in the following JSON structure:
             
             document_type = rag_output.get('document_type', 'Unknown')
             original_query = rag_output.get('original_query', '')
+            embedding_model = rag_output.get('embedding_model', self.embedding_model_name)
             individual_answers = rag_output.get('individual_answers', {})
             
             evaluation_results = {
                 'document_type': document_type,
                 'original_query': original_query,
+                'embedding_model': embedding_model,  # Track embedding model for pipeline consistency
                 'consensus_evaluations': {},
                 'overall_summary': {},
                 'queries_needing_refinement': [],
                 'evaluated_at': datetime.now().isoformat()
             }
+            
+            logger.info(f"Evaluating consensus for {len(individual_answers)} queries using {embedding_model} compatibility")
             
             # Evaluate consensus for each query
             for query_id, query_data in individual_answers.items():
@@ -296,6 +306,7 @@ Provide your evaluation in the following JSON structure:
             return {
                 'error': str(e),
                 'document_type': rag_output.get('document_type', 'Unknown'),
+                'embedding_model': rag_output.get('embedding_model', self.embedding_model_name),
                 'consensus_evaluations': {},
                 'evaluated_at': datetime.now().isoformat()
             }
@@ -509,22 +520,11 @@ Provide your evaluation in the following JSON structure:
 
 # Example usage
 if __name__ == "__main__":
-    # Separate API keys for each component to avoid rate limits
-    GOOGLE_API_KEYS = [
-        # Key 5: consensus_evaluator.py
-    ]
+    # Initialize with your API key
+    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
     
-    # Filter out placeholder keys
-    valid_keys = [key for key in GOOGLE_API_KEYS if key != "your_google_api_key_1_here" and not key.endswith("_here")]
-    
-    if len(valid_keys) < 5:
-        print("Please set all 5 Google API keys in the GOOGLE_API_KEYS list")
-        print("Each component needs its own API key to avoid rate limits:")
-        print("- Key 1: document_classifier.py")
-        print("- Key 2: query_analyzer.py") 
-        print("- Key 3: search_query_generator.py")
-        print("- Key 4: llm_enhanced_rag.py")
-        print("- Key 5: consensus_evaluator.py")
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+        print("Please set your Google API key")
         exit(1)
     
     # Import previous components
@@ -534,18 +534,21 @@ if __name__ == "__main__":
     from search_query_generator import SearchQueryGenerator
     from llm_enhanced_rag import LLMEnhancedRAG
     
-    # Initialize each component with its own dedicated API key
-    classifier = LegalDocumentClassifier(valid_keys[0])    # API Key 1
-    analyzer = LegalDocumentQueryAnalyzer(valid_keys[1])   # API Key 2
-    generator = SearchQueryGenerator(valid_keys[2])        # API Key 3
-    rag_system = LLMEnhancedRAG(valid_keys[3])            # API Key 4
-    evaluator = ConsensusEvaluator([valid_keys[4]])        # API Key 5
+    # Initialize each component with HuggingFace embeddings
+    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+    
+    classifier = LegalDocumentClassifier(GOOGLE_API_KEY, embedding_model=embedding_model)
+    analyzer = LegalDocumentQueryAnalyzer(GOOGLE_API_KEY)
+    generator = SearchQueryGenerator(GOOGLE_API_KEY)
+    rag_system = LLMEnhancedRAG(GOOGLE_API_KEY, embedding_model=embedding_model)
+    evaluator = ConsensusEvaluator([GOOGLE_API_KEY], embedding_model=embedding_model)
     
     # Complete workflow with consensus evaluation
     pdf_path = "Suryansh_OL.docx (1) (1) (1).pdf"  # Replace with your PDF path
     
     if os.path.exists(pdf_path):
         print("=== COMPLETE WORKFLOW WITH CONSENSUS EVALUATION (Steps 1-4B) ===")
+        print(f"Using HuggingFace Embedding Model: {embedding_model}")
         
         # Steps 1-4A: Same as before
         print("\n1. CLASSIFYING DOCUMENT...")
@@ -553,6 +556,7 @@ if __name__ == "__main__":
         
         if classification_result['success']:
             print(f"   Document Type: {classification_result['classification']['document_type']}")
+            print(f"   Embedding Model: {classification_result['embedding_model']}")
             
             print("\n2. ANALYZING USER QUERY...")
             user_query = "What is the monthly stipend amount and working hours?"
@@ -573,6 +577,7 @@ if __name__ == "__main__":
                     
                     if 'error' not in rag_results:
                         print(f"   Individual Answers Generated: {rag_results['successful_answers']}")
+                        print(f"   Embedding Model: {rag_results['embedding_model']}")
                         
                         # Step 4B: Consensus Evaluation
                         print("\n4B. EVALUATING CONSENSUS ACROSS ANSWERS...")
@@ -582,6 +587,7 @@ if __name__ == "__main__":
                             summary = consensus_results['overall_summary']
                             print(f"   Queries Evaluated: {summary['total_queries']}")
                             print(f"   Success Rate: {summary['success_rate']:.1f}%")
+                            print(f"   Embedding Model Compatibility: {consensus_results['embedding_model']}")
                             print(f"   Ready for Synthesis: {summary['ready_for_synthesis']}")
                             
                             # Show consensus results
@@ -615,11 +621,11 @@ if __name__ == "__main__":
             print(f"   Error: {classification_result.get('error', 'Unknown error')}")
     else:
         print(f"PDF file not found: {pdf_path}")
-        print("\n=== DEMO NOTES ===")
-        print("This consensus evaluation system:")
-        print("- Analyzes all 15 individual answers (5 per query)")
-        print("- Evaluates search angle quality and answer consistency")
-        print("- Applies intelligent bypass logic for poor search angles")
-        print("- Provides verdicts: CORRECT/SATISFACTORY/CONTRADICTORY/INSUFFICIENT")
-        print("- Uses multiple API keys to handle rate limits")
+        print("\n=== UPDATED PIPELINE FEATURES ===")
+        print("This consensus evaluation system now works with:")
+        print("- HuggingFace embeddings for vector search consistency")
+        print("- Gemini 2.0 Flash for advanced consensus evaluation")
+        print("- Full pipeline compatibility with document_classifier.py")
+        print("- Same embedding model throughout entire workflow")
+        print("- Intelligent consensus evaluation with bypass logic")
         print("- Ready for final synthesis step")

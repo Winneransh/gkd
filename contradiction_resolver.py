@@ -3,6 +3,7 @@ enhanced_contradiction_resolver.py
 
 Enhanced Step 5: Resolves contradictory findings with web search grounding for legal queries
 and includes specialized duration calculation tools for contract/internship terms.
+Updated to use HuggingFace embeddings and integrate with the complete pipeline.
 """
 
 import json
@@ -13,7 +14,8 @@ from datetime import datetime, timedelta
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
@@ -280,18 +282,22 @@ class EnhancedContradictionResolver:
     """
     Enhanced contradiction resolver with web search grounding for legal queries
     and specialized duration calculation capabilities.
+    Updated to use HuggingFace embeddings for pipeline consistency.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db"):
+    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db",
+                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the enhanced contradiction resolver.
         
         Args:
             google_api_key: Google API key for Gemini
             chroma_persist_directory: Directory where ChromaDB is persisted
+            embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
         self.chroma_persist_directory = chroma_persist_directory
+        self.embedding_model_name = embedding_model
         
         # Initialize Gemini client for grounding search
         self.gemini_client = genai.Client(api_key=google_api_key)
@@ -314,10 +320,12 @@ class EnhancedContradictionResolver:
             max_output_tokens=4096
         )
         
-        # Initialize embeddings for ChromaDB
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=google_api_key
+        # Initialize HuggingFace embeddings (replacing Gemini embeddings)
+        logger.info(f"Loading HuggingFace embedding model: {embedding_model}")
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=embedding_model,
+            model_kwargs={'device': 'cpu'},  # Use 'cuda' if you have GPU
+            encode_kwargs={'normalize_embeddings': True}
         )
         
         # Initialize duration calculator
@@ -328,6 +336,22 @@ class EnhancedContradictionResolver:
         self.contradiction_search_prompt = self._create_contradiction_search_prompt()
         self.resolution_prompt = self._create_resolution_prompt()
         self.query_classifier_prompt = self._create_query_classifier_prompt()
+    
+    def get_vectorstore(self, collection_name: str = "legal_documents") -> Chroma:
+        """
+        Get ChromaDB vectorstore with HuggingFace embeddings.
+        
+        Args:
+            collection_name: ChromaDB collection name
+            
+        Returns:
+            Chroma vectorstore instance
+        """
+        return Chroma(
+            collection_name=collection_name,
+            embedding_function=self.embeddings,
+            persist_directory=self.chroma_persist_directory
+        )
     
     def _create_query_classifier_prompt(self) -> PromptTemplate:
         """Create prompt for classifying query types."""
@@ -362,7 +386,7 @@ Determine if this query falls into any of these special categories:
   "requires_duration_calculation": true/false,
   "confidence": 0.8,
   "reasoning": "explanation of classification",
-  "search_keywords": ["keyword1", "keyword2"] // if web search needed
+  "search_keywords": ["keyword1", "keyword2"]
 }}
 
 **CLASSIFY THE QUERY:**"""
@@ -529,20 +553,18 @@ Contradiction Reasons: {contradiction_reasons}
                     'resolved_at': datetime.now().isoformat()
                 }
             
-            # Initialize ChromaDB vector store
-            vectorstore = Chroma(
-                collection_name=collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=self.chroma_persist_directory
-            )
+            # Initialize ChromaDB vector store with HuggingFace embeddings
+            vectorstore = self.get_vectorstore(collection_name)
             
             document_type = consensus_output.get('document_type', 'Unknown')
             original_query = consensus_output.get('original_query', '')
+            embedding_model = consensus_output.get('embedding_model', self.embedding_model_name)
             consensus_evaluations = consensus_output.get('consensus_evaluations', {})
             
             resolution_results = {
                 'document_type': document_type,
                 'original_query': original_query,
+                'embedding_model': embedding_model,
                 'collection_name': collection_name,
                 'resolutions': {},
                 'contradictory_queries_found': 0,
@@ -551,6 +573,8 @@ Contradiction Reasons: {contradiction_reasons}
                 'duration_calculations_performed': 0,
                 'resolved_at': datetime.now().isoformat()
             }
+            
+            logger.info(f"Enhanced resolution using {embedding_model} embeddings")
             
             # Find queries that need resolution
             contradictory_queries = []
@@ -618,6 +642,7 @@ Contradiction Reasons: {contradiction_reasons}
             return {
                 'error': str(e),
                 'document_type': consensus_output.get('document_type', 'Unknown'),
+                'embedding_model': consensus_output.get('embedding_model', self.embedding_model_name),
                 'resolutions': {},
                 'resolved_at': datetime.now().isoformat()
             }
@@ -760,7 +785,7 @@ Contradiction Reasons: {contradiction_reasons}
             
             # Perform grounding search
             response = self.gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash-exp",
                 contents=search_prompt,
                 config=self.gemini_grounding_config,
             )
@@ -865,120 +890,184 @@ Contradiction Reasons: {contradiction_reasons}
         except Exception:
             return 'Contradiction detected during consensus evaluation'
 
-# Example usage
+# Example usage with complete pipeline integration
 if __name__ == "__main__":
-    # API key for enhanced contradiction resolver
-    GOOGLE_API_KEY = "your_google_api_key_here"
+    # Initialize with your API key
+    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
     
     if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
-        print("Please set your Google API key for the enhanced contradiction resolver")
+        print("Please set your Google API key")
         exit(1)
     
-    print("=== ENHANCED CONTRADICTION RESOLVER DEMO ===")
-    print("This enhanced component provides:")
-    print("1. 🔍 Web Search Grounding for legal queries")
-    print("2. ⏱️  Advanced Duration Calculation tools")
-    print("3. 🧠 Intelligent Query Classification")
-    print("4. 📋 Comprehensive Resolution Integration")
-    print()
+    # Import all previous components
+    import os
+    from document_classifier import LegalDocumentClassifier
+    from query_analyzer import LegalDocumentQueryAnalyzer
+    from search_query_generator import SearchQueryGenerator
+    from llm_enhanced_rag import LLMEnhancedRAG
+    from consensus_evaluator import ConsensusEvaluator
     
-    print("ENHANCED FEATURES:")
-    print("✅ Duration Calculation:")
-    print("   - Flexible date parsing (any format)")
-    print("   - LLM-enhanced extraction (no regex)")
-    print("   - Multi-method validation")
-    print("   - Handles relative dates and academic terms")
-    print()
+    # Initialize all components with HuggingFace embeddings
+    embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
     
-    print("✅ Web Search Grounding:")
-    print("   - Legal research for unknown sections")
-    print("   - Authoritative source consultation")
-    print("   - Real-time legal information")
-    print("   - Source citation and validation")
-    print()
+    classifier = LegalDocumentClassifier(GOOGLE_API_KEY, embedding_model=embedding_model)
+    analyzer = LegalDocumentQueryAnalyzer(GOOGLE_API_KEY)
+    generator = SearchQueryGenerator(GOOGLE_API_KEY)
+    rag_system = LLMEnhancedRAG(GOOGLE_API_KEY, embedding_model=embedding_model)
+    evaluator = ConsensusEvaluator([GOOGLE_API_KEY], embedding_model=embedding_model)
+    resolver = EnhancedContradictionResolver(GOOGLE_API_KEY, embedding_model=embedding_model)
     
-    print("✅ Query Classification:")
-    print("   - Automatic query type detection")
-    print("   - Smart feature activation")
-    print("   - Context-aware processing")
-    print("   - Confidence scoring")
-    print()
+    # Complete workflow with enhanced contradiction resolution
+    pdf_path = "Suryansh_OL.docx (1) (1) (1).pdf"  # Replace with your PDF path
     
-    print("EXAMPLE SCENARIOS:")
-    print("📅 Duration Query: 'What is the internship duration?'")
-    print("   → Activates duration calculator")
-    print("   → Extracts dates/periods from document")
-    print("   → Calculates total duration in months/days")
-    print()
-    
-    print("⚖️  Legal Query: 'What are my termination rights?'")
-    print("   → Activates web search grounding")
-    print("   → Researches employment law")
-    print("   → Combines document + legal research")
-    print()
-    
-    print("🔄 Contradiction: 'Conflicting stipend amounts found'")
-    print("   → Targeted search for definitive amounts")
-    print("   → Cross-reference with legal standards")
-    print("   → Provide conclusive resolution")
-    print()
-    
-    print("🚀 Ready to integrate with existing pipeline!")
-    print("   Just replace the old contradiction_resolver.py import")
-    print("   All existing functionality preserved + enhanced features")
-
-    # Demo with mock data
-    print("\n" + "="*60)
-    print("MOCK DEMO - Duration Calculation")
-    print("="*60)
-    
-    try:
-        # Initialize duration calculator
-        calc = DurationCalculator(GOOGLE_API_KEY)
+    if os.path.exists(pdf_path):
+        print("=== COMPLETE WORKFLOW WITH ENHANCED RESOLUTION (Steps 1-5) ===")
+        print(f"Using HuggingFace Embedding Model: {embedding_model}")
         
-        # Mock document context with duration info
-        mock_context = """
-        INTERNSHIP AGREEMENT
+        # Step 1: Document Classification
+        print("\n1. CLASSIFYING DOCUMENT...")
+        classification_result = classifier.process_pdf_and_classify(pdf_path)
         
-        This internship shall commence from July 1st, 2024 and shall continue for a period of 3 months.
-        The intern shall work for the complete duration of the summer internship program.
-        
-        PROBATION PERIOD: The first 30 days shall be considered as probation period.
-        
-        NOTICE PERIOD: Either party may terminate this agreement by giving 15 days written notice.
-        """
-        
-        mock_query = "What is the total duration of this internship?"
-        
-        print(f"Query: {mock_query}")
-        print(f"Context: {mock_context[:200]}...")
-        
-        # Calculate duration
-        result = calc.extract_and_calculate_duration(mock_context, mock_query)
-        
-        if result.get('duration_found', False):
-            enhanced = result.get('enhanced_calculation', {})
-            print(f"\n✅ Duration Found:")
-            print(f"   Total Duration: {enhanced.get('duration_summary', 'Unknown')}")
-            print(f"   Confidence: {enhanced.get('confidence', 'Unknown')}")
-            print(f"   Calculation Method: {enhanced.get('calculation_method', 'Unknown')}")
+        if classification_result['success']:
+            print(f"   Document Type: {classification_result['classification']['document_type']}")
+            print(f"   Embedding Model: {classification_result['embedding_model']}")
             
-            details = enhanced.get('calculation_details', [])
-            if details:
-                print(f"   Calculation Steps:")
-                for detail in details[:3]:  # Show first 3 steps
-                    print(f"     • {detail}")
+            # Step 2: Query Analysis
+            print("\n2. ANALYZING USER QUERY...")
+            user_query = "What is the monthly stipend amount and internship duration?"
+            query_analysis = analyzer.analyze_query(user_query, classification_result)
+            
+            if 'error' not in query_analysis:
+                print(f"   Single Queries: {len(query_analysis['single_queries'])}")
+                print(f"   Hybrid Queries: {len(query_analysis['hybrid_queries'])}")
+                
+                # Step 3: Search Angle Generation
+                print("\n3. GENERATING SEARCH ANGLES...")
+                search_angles = generator.generate_search_angles(query_analysis)
+                
+                if 'error' not in search_angles:
+                    print(f"   Total Search Angles: {search_angles['total_angles_generated']}")
+                    
+                    # Step 4A: Individual RAG Processing
+                    print("\n4A. PROCESSING INDIVIDUAL SEARCH ANGLES...")
+                    rag_results = rag_system.process_all_search_angles(search_angles)
+                    
+                    if 'error' not in rag_results:
+                        print(f"   Individual Answers Generated: {rag_results['successful_answers']}")
+                        print(f"   Embedding Model: {rag_results['embedding_model']}")
+                        
+                        # Step 4B: Consensus Evaluation
+                        print("\n4B. EVALUATING CONSENSUS ACROSS ANSWERS...")
+                        consensus_results = evaluator.evaluate_consensus(rag_results)
+                        
+                        if 'error' not in consensus_results:
+                            summary = consensus_results['overall_summary']
+                            print(f"   Queries Evaluated: {summary['total_queries']}")
+                            print(f"   Success Rate: {summary['success_rate']:.1f}%")
+                            print(f"   Embedding Model: {consensus_results['embedding_model']}")
+                            
+                            # Step 5: Enhanced Contradiction Resolution
+                            print("\n5. ENHANCED CONTRADICTION RESOLUTION...")
+                            resolution_results = resolver.resolve_contradictions(consensus_results)
+                            
+                            if 'error' not in resolution_results:
+                                print(f"   Contradictory Queries Found: {resolution_results['contradictory_queries_found']}")
+                                print(f"   Successfully Resolved: {resolution_results['successfully_resolved']}")
+                                print(f"   Web Searches Performed: {resolution_results['web_searches_performed']}")
+                                print(f"   Duration Calculations: {resolution_results['duration_calculations_performed']}")
+                                print(f"   Embedding Model: {resolution_results['embedding_model']}")
+                                
+                                # Show resolution results
+                                if resolution_results['resolutions']:
+                                    print("\n   Enhanced Resolution Results:")
+                                    for query_id, resolution in resolution_results['resolutions'].items():
+                                        if resolution.get('resolution_success', False):
+                                            features_used = resolution.get('enhanced_features_used', {})
+                                            print(f"   Query {query_id}:")
+                                            print(f"     Query Type: {resolution.get('query_classification', {}).get('query_type', 'unknown')}")
+                                            print(f"     Web Search: {features_used.get('web_search', False)}")
+                                            print(f"     Duration Calc: {features_used.get('duration_calculation', False)}")
+                                            print(f"     Resolution: {resolution.get('resolution_answer', 'N/A')[:150]}...")
+                                        else:
+                                            print(f"   Query {query_id}: Resolution failed - {resolution.get('error', 'Unknown')}")
+                                else:
+                                    print("\n   No contradictory queries requiring enhanced resolution")
+                                    
+                                print(f"\n✅ COMPLETE PIPELINE SUCCESS!")
+                                print(f"   Total Processing Time: Complete")
+                                print(f"   Embedding Consistency: {embedding_model}")
+                                print(f"   Enhanced Features: Web Search + Duration Calculation")
+                            else:
+                                print(f"   Error: {resolution_results['error']}")
+                        else:
+                            print(f"   Error: {consensus_results['error']}")
+                    else:
+                        print(f"   Error: {rag_results['error']}")
+                else:
+                    print(f"   Error: {search_angles['error']}")
+            else:
+                print(f"   Error: {query_analysis['error']}")
         else:
-            print(f"❌ Duration extraction failed: {result.get('error', 'Unknown error')}")
-            
-    except Exception as e:
-        print(f"❌ Demo failed: {str(e)}")
-        print("This is expected without a valid API key")
+            print(f"   Error: {classification_result.get('error', 'Unknown error')}")
+    else:
+        print(f"PDF file not found: {pdf_path}")
+        print("\n=== ENHANCED PIPELINE FEATURES ===")
+        print("This complete pipeline now includes:")
+        print()
+        print("🔧 CONSISTENT ARCHITECTURE:")
+        print("   ✅ HuggingFace embeddings across all components")
+        print("   ✅ Gemini 2.0 Flash for LLM reasoning")
+        print("   ✅ ChromaDB with unified embedding model")
+        print("   ✅ Pipeline-wide compatibility tracking")
+        print()
+        print("🚀 ENHANCED RESOLUTION FEATURES:")
+        print("   ✅ Intelligent query classification")
+        print("   ✅ Web search grounding for legal research")
+        print("   ✅ Advanced duration calculation tools")
+        print("   ✅ Multi-source information synthesis")
+        print()
+        print("📊 PROCESSING CAPABILITIES:")
+        print("   • Document Classification → Search Angles → RAG Processing")
+        print("   • Consensus Evaluation → Enhanced Resolution")
+        print("   • Duration extraction with flexible date parsing")
+        print("   • Legal research with authoritative sources")
+        print("   • Contradiction resolution with evidence synthesis")
+        print()
+        print("🎯 SPECIALIZED QUERY HANDLING:")
+        print("   📅 Duration Queries: 'How long is the internship?'")
+        print("   ⚖️  Legal Queries: 'What are my termination rights?'")
+        print("   🔄 Contradictions: 'Found conflicting stipend amounts'")
+        print("   📋 Standard Queries: 'What is the job location?'")
+        print()
+        print("💡 READY FOR PRODUCTION:")
+        print("   • All components use same embedding model")
+        print("   • Error handling and fallback mechanisms")
+        print("   • Comprehensive logging and tracking")
+        print("   • Enhanced features activate automatically")
+        print("   • Full pipeline integration maintained")
     
-    print("\n💡 INTEGRATION NOTES:")
-    print("1. Replace the old contradiction_resolver.py with this enhanced version")
-    print("2. Update your import in end_to_end_pipeline.py:")
+    print("\n" + "="*60)
+    print("INTEGRATION INSTRUCTIONS")
+    print("="*60)
+    print("1. Replace old imports with:")
     print("   from enhanced_contradiction_resolver import EnhancedContradictionResolver")
-    print("3. Same interface - all existing code works unchanged")
-    print("4. Enhanced features activate automatically based on query type")
-    print("5. Set Google API key with grounding search permissions")
+    print()
+    print("2. Initialize with same embedding model:")
+    print("   resolver = EnhancedContradictionResolver(")
+    print("       GOOGLE_API_KEY,")
+    print("       embedding_model='sentence-transformers/all-MiniLM-L6-v2'")
+    print("   )")
+    print()
+    print("3. Use same interface:")
+    print("   resolution_results = resolver.resolve_contradictions(consensus_results)")
+    print()
+    print("4. Enhanced features activate automatically based on:")
+    print("   • Query content analysis")
+    print("   • Contradiction patterns")
+    print("   • Document type classification")
+    print()
+    print("5. New output includes:")
+    print("   • web_searches_performed: count")
+    print("   • duration_calculations_performed: count")
+    print("   • enhanced_features_used: detailed breakdown")
+    print("   • embedding_model: consistency tracking")

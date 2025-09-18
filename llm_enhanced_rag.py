@@ -3,6 +3,7 @@ llm_enhanced_rag.py
 
 LLM-Enhanced RAG System that processes each individual search angle separately
 and provides individual answers without any evaluation or confidence scoring.
+Updated to use HuggingFace embeddings while keeping Gemini for LLM tasks.
 """
 
 import json
@@ -11,7 +12,8 @@ import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
@@ -24,20 +26,24 @@ class LLMEnhancedRAG:
     """
     LLM-Enhanced RAG system that processes each search angle individually
     and provides separate answers for each search angle.
+    Uses HuggingFace embeddings for vector search and Gemini for LLM reasoning.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db"):
+    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db",
+                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the LLM-Enhanced RAG system.
         
         Args:
             google_api_key: Google API key for Gemini
             chroma_persist_directory: Directory where ChromaDB is persisted
+            embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
         self.chroma_persist_directory = chroma_persist_directory
+        self.embedding_model_name = embedding_model
         
-        # Initialize Gemini 2.5 Flash LLM
+        # Initialize Gemini 2.0 Flash LLM (keeping Gemini for reasoning)
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=google_api_key,
@@ -45,10 +51,12 @@ class LLMEnhancedRAG:
             max_output_tokens=4096
         )
         
-        # Initialize embeddings for ChromaDB
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=google_api_key
+        # Initialize HuggingFace embeddings (replacing Gemini embeddings)
+        logger.info(f"Loading HuggingFace embedding model: {embedding_model}")
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=embedding_model,
+            model_kwargs={'device': 'cpu'},  # Use 'cuda' if you have GPU
+            encode_kwargs={'normalize_embeddings': True}
         )
         
         # Rate limiting variables
@@ -196,6 +204,22 @@ Provide a direct, factual answer focusing specifically on what the search query 
             template=prompt_template
         )
     
+    def get_vectorstore(self, collection_name: str = "legal_documents") -> Chroma:
+        """
+        Get ChromaDB vectorstore with HuggingFace embeddings.
+        
+        Args:
+            collection_name: ChromaDB collection name
+            
+        Returns:
+            Chroma vectorstore instance
+        """
+        return Chroma(
+            collection_name=collection_name,
+            embedding_function=self.embeddings,
+            persist_directory=self.chroma_persist_directory
+        )
+    
     def process_all_search_angles(self, search_angles_output: Dict[str, Any], collection_name: str = "legal_documents") -> Dict[str, Any]:
         """
         Process each individual search angle separately and provide individual answers.
@@ -217,12 +241,8 @@ Provide a direct, factual answer focusing specifically on what the search query 
                     'processed_at': datetime.now().isoformat()
                 }
             
-            # Initialize ChromaDB vector store
-            vectorstore = Chroma(
-                collection_name=collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=self.chroma_persist_directory
-            )
+            # Initialize ChromaDB vector store with HuggingFace embeddings
+            vectorstore = self.get_vectorstore(collection_name)
             
             document_type = search_angles_output.get('document_type', 'Unknown')
             original_query = search_angles_output.get('original_query', '')
@@ -232,6 +252,7 @@ Provide a direct, factual answer focusing specifically on what the search query 
                 'document_type': document_type,
                 'original_query': original_query,
                 'collection_name': collection_name,
+                'embedding_model': self.embedding_model_name,
                 'individual_answers': {},
                 'total_search_angles_processed': 0,
                 'successful_answers': 0,
@@ -517,6 +538,7 @@ Provide a direct, factual answer focusing specifically on what the search query 
         return {
             'document_type': rag_output.get('document_type', 'Unknown'),
             'original_query': rag_output.get('original_query', ''),
+            'embedding_model': rag_output.get('embedding_model', 'Unknown'),
             'total_queries': total_queries,
             'total_search_angles': total_angles,
             'successful_answers': successful_angles,
@@ -528,30 +550,32 @@ Provide a direct, factual answer focusing specifically on what the search query 
 # Example usage
 if __name__ == "__main__":
     # Initialize components
-    GOOGLE_API_KEY = ""  # Replace with your actual API key
-    
-
+    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
     
     # Import previous components
     import os
     from query_analyzer import LegalDocumentQueryAnalyzer
     from search_query_generator import SearchQueryGenerator
     
-    # Initialize components (skipping document classifier)
+    # Initialize components with HuggingFace embeddings
     analyzer = LegalDocumentQueryAnalyzer(GOOGLE_API_KEY)
     generator = SearchQueryGenerator(GOOGLE_API_KEY)
-    rag_system = LLMEnhancedRAG(GOOGLE_API_KEY)
+    rag_system = LLMEnhancedRAG(
+        GOOGLE_API_KEY, 
+        embedding_model="sentence-transformers/all-MiniLM-L6-v2"
+    )
     
     # Check if ChromaDB folder exists
     chroma_db_path = "./chroma_db"
     
     if os.path.exists(chroma_db_path):
-        print("=== INDIVIDUAL SEARCH ANGLE PROCESSING (Using Pre-existing ChromaDB) ===")
+        print("=== INDIVIDUAL SEARCH ANGLE PROCESSING (Using HuggingFace Embeddings) ===")
         
         # Skip Step 1: Document classification - use pre-existing ChromaDB
         print("\n1. USING PRE-EXISTING CHROMADB...")
         print(f"   ChromaDB Path: {chroma_db_path}")
         print(f"   Document Type: Offer Letter (pre-defined)")
+        print(f"   Embedding Model: {rag_system.embedding_model_name}")
         
         # Create mock classification result for query analyzer
         classification_result = {
@@ -586,6 +610,7 @@ if __name__ == "__main__":
                 if 'error' not in rag_results:
                     print(f"   Search Angles Processed: {rag_results['total_search_angles_processed']}")
                     print(f"   Successful Answers: {rag_results['successful_answers']}")
+                    print(f"   Embedding Model Used: {rag_results['embedding_model']}")
                     
                     # Show individual answers
                     print("\n   Individual Search Angle Answers:")
@@ -610,14 +635,12 @@ if __name__ == "__main__":
             print(f"   Error: {query_analysis['error']}")
     else:
         print(f"ChromaDB folder not found: {chroma_db_path}")
-        print("\n=== DEMO NOTES ===")
-        print("This system now uses pre-existing ChromaDB and skips document classification:")
-        print("- Uses pre-existing ChromaDB folder instead of processing new PDFs")
-        print("- Document type set to 'offer letter' directly")
-        print("- 2 Single Queries + 1 Hybrid = 3 queries")
-        print("- 5 search angles per query = 15 total search angles")
-        print("- Only 5 search angles processed per minute (Gemini rate limit)")
-        print("- Each angle gets its own LLM-enhanced answer")
-        print("- System automatically waits when rate limit is reached")
-
-        print("- Ready for Step 4B evaluation of the individual answers")
+        print("\n=== UPDATED SYSTEM FEATURES ===")
+        print("This system now uses HuggingFace embeddings consistent with document_classifier.py:")
+        print("- HuggingFace embeddings for vector search (free, local)")
+        print("- Gemini 2.0 Flash for LLM reasoning (powerful classification)")
+        print("- Compatible with ChromaDB created by document_classifier.py")
+        print("- Same embedding model: sentence-transformers/all-MiniLM-L6-v2")
+        print("- Rate limiting: 5 search angles per minute")
+        print("- Individual LLM-enhanced answers for each search angle")
+        print("- Ready for evaluation step")

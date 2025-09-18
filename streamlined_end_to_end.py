@@ -3,6 +3,7 @@ streamlined_end_to_end.py
 
 Clean end-to-end pipeline from query analyzer to final synthesis.
 No document classification, no intermediate logging, only final results.
+FIXED: Import names, method names, and API key management.
 """
 
 import os
@@ -16,37 +17,38 @@ logging.getLogger().setLevel(logging.CRITICAL)
 logging.getLogger('langchain').setLevel(logging.CRITICAL)
 logging.getLogger('chromadb').setLevel(logging.CRITICAL)
 
-# Import pipeline components
+# Import pipeline components - FIXED IMPORTS
 from query_analyzer import LegalDocumentQueryAnalyzer
 from search_query_generator import SearchQueryGenerator
 from llm_enhanced_rag import LLMEnhancedRAG
 from consensus_evaluator import ConsensusEvaluator
 from contradiction_resolver import EnhancedContradictionResolver
-from final_synthesizer import FinalAnswerSynthesizer
+from final_synthesizer import UnifiedFinalAnswerSynthesizer  # FIXED: Was FinalAnswerSynthesizer
 
 class StreamlinedPipeline:
     """
     Streamlined end-to-end pipeline with minimal logging and clean output.
     """
     
-    def __init__(self, api_keys: Dict[str, str], document_type: str = "Offer Letter"):
+    def __init__(self, google_api_key: str, document_type: str = "Offer Letter"):  # FIXED: Single API key
         """
-        Initialize pipeline with API keys and document type.
+        Initialize pipeline with single API key and document type.
         
         Args:
-            api_keys: Dictionary with API keys for each component
+            google_api_key: Single Google API key for all components
             document_type: Type of document (default: Offer Letter)
         """
-        self.api_keys = api_keys
+        self.google_api_key = google_api_key
         self.document_type = document_type
+        self.embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
         
-        # Initialize all components silently
-        self.query_analyzer = LegalDocumentQueryAnalyzer(api_keys['query_analyzer'])
-        self.search_generator = SearchQueryGenerator(api_keys['search_generator'])
-        self.rag_system = LLMEnhancedRAG(api_keys['rag_system'])
-        self.consensus_evaluator = ConsensusEvaluator([api_keys['consensus_evaluator']])
-        self.contradiction_resolver = EnhancedContradictionResolver(api_keys['contradiction_resolver'])
-        self.final_synthesizer = FinalAnswerSynthesizer(api_keys['final_synthesizer'])
+        # Initialize all components with same API key - FIXED: Simplified API key management
+        self.query_analyzer = LegalDocumentQueryAnalyzer(self.google_api_key)
+        self.search_generator = SearchQueryGenerator(self.google_api_key)
+        self.rag_system = LLMEnhancedRAG(self.google_api_key, embedding_model=self.embedding_model)
+        self.consensus_evaluator = ConsensusEvaluator([self.google_api_key], embedding_model=self.embedding_model)
+        self.contradiction_resolver = EnhancedContradictionResolver(self.google_api_key, embedding_model=self.embedding_model)
+        self.final_synthesizer = UnifiedFinalAnswerSynthesizer(self.google_api_key, embedding_model=self.embedding_model)  # FIXED: Class name
     
     def process_query(self, user_query: str) -> Dict[str, Any]:
         """
@@ -102,8 +104,8 @@ class StreamlinedPipeline:
                 if 'error' in resolution_results:
                     return self._error_response(f"Contradiction resolution failed: {resolution_results['error']}")
             
-            # Step 6: Final Synthesis
-            final_answer = self.final_synthesizer.synthesize_final_answer(
+            # Step 6: Final Synthesis - FIXED: Method name
+            final_answer = self.final_synthesizer.synthesize_unified_answer(  # FIXED: Was synthesize_final_answer
                 user_question=user_query,
                 rag_output=rag_results,
                 consensus_output=consensus_results,
@@ -113,11 +115,11 @@ class StreamlinedPipeline:
             if 'error' in final_answer:
                 return self._error_response(f"Final synthesis failed: {final_answer['error']}")
             
-            # Return clean final results
+            # Return clean final results - FIXED: Access correct field name
             return {
                 'user_query': user_query,
                 'document_type': self.document_type,
-                'final_answer': final_answer['final_answer'],
+                'final_answer': final_answer['unified_final_answer'],  # FIXED: Was 'final_answer'
                 'quality_metrics': final_answer.get('quality_metrics', {}),
                 'processing_summary': {
                     'queries_analyzed': len(query_analysis.get('single_queries', [])) + len(query_analysis.get('hybrid_queries', [])),
@@ -148,21 +150,13 @@ class StreamlinedPipeline:
 def main():
     """Main execution function."""
     
-    # API Keys Configuration
-    API_KEYS = {
-        'query_analyzer': 'your_api_key_1_here',
-        'search_generator': 'your_api_key_2_here',
-        'rag_system': 'your_api_key_3_here',
-        'consensus_evaluator': 'your_api_key_4_here',
-        'contradiction_resolver': 'your_api_key_5_here',
-        'final_synthesizer': 'your_api_key_6_here'
-    }
+    # FIXED: Single API key configuration
+    GOOGLE_API_KEY = 'your_google_api_key_here'  # Replace with your actual Google API key
     
-    # Check API keys
-    missing_keys = [key for key, value in API_KEYS.items() if 'your_api_key' in value]
-    if missing_keys:
+    # Check API key
+    if not GOOGLE_API_KEY or 'your_google_api_key' in GOOGLE_API_KEY:
         return {
-            'error': f'Missing API keys: {missing_keys}',
+            'error': 'Please set your Google API key in GOOGLE_API_KEY variable',
             'success': False
         }
     
@@ -174,7 +168,7 @@ def main():
         }
     
     # Initialize pipeline
-    pipeline = StreamlinedPipeline(API_KEYS, document_type="Offer Letter")
+    pipeline = StreamlinedPipeline(GOOGLE_API_KEY, document_type="Offer Letter")
     
     # Process query
     user_query = "What is the stipend and total duration of internship?"

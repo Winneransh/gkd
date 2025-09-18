@@ -1,7 +1,7 @@
 """
 document_classifier.py
 
-This module handles PDF text extraction, chunking, ChromaDB storage with Gemini embeddings,
+This module handles PDF text extraction, chunking, ChromaDB storage with HuggingFace embeddings,
 and document type classification using Gemini API with advanced prompting techniques.
 """
 
@@ -20,7 +20,8 @@ import pdfplumber
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 
 # Setup logging
@@ -29,29 +30,34 @@ logger = logging.getLogger(__name__)
 
 class LegalDocumentClassifier:
     """
-    Handles PDF processing, ChromaDB storage, and document type classification.
+    Handles PDF processing, ChromaDB storage with HuggingFace embeddings, and document type classification with Gemini.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db"):
+    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db", 
+                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the document classifier.
         
         Args:
             google_api_key: Google API key for Gemini
             chroma_persist_directory: Directory to persist ChromaDB
+            embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
         self.chroma_persist_directory = chroma_persist_directory
+        self.embedding_model_name = embedding_model
         
-        # Initialize embeddings
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=google_api_key
+        # Initialize HuggingFace embeddings
+        logger.info(f"Loading HuggingFace embedding model: {embedding_model}")
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=embedding_model,
+            model_kwargs={'device': 'cpu'},  # Use 'cuda' if you have GPU
+            encode_kwargs={'normalize_embeddings': True}
         )
         
         # Initialize Gemini LLM for classification
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash-exp",  # Updated to latest model
             google_api_key=google_api_key,
             temperature=0.1,
             max_output_tokens=2048
@@ -188,7 +194,7 @@ Reasoning: [Brief explanation of why this classification was chosen]
     
     def chunk_and_store_document(self, text: str, document_name: str, collection_name: str = "legal_documents") -> Tuple[List[Document], Chroma]:
         """
-        Chunk document text and store in ChromaDB.
+        Chunk document text and store in ChromaDB using HuggingFace embeddings.
         
         Args:
             text: Full document text
@@ -212,12 +218,13 @@ Reasoning: [Brief explanation of why this classification was chosen]
                         'chunk_index': i,
                         'total_chunks': len(chunks),
                         'source': 'pdf_document',
+                        'embedding_model': self.embedding_model_name,
                         'created_at': datetime.now().isoformat()
                     }
                 )
                 documents.append(doc)
             
-            # Create or load ChromaDB collection
+            # Create or load ChromaDB collection with HuggingFace embeddings
             vectorstore = Chroma(
                 collection_name=collection_name,
                 embedding_function=self.embeddings,
@@ -228,7 +235,7 @@ Reasoning: [Brief explanation of why this classification was chosen]
             vectorstore.add_documents(documents)
             vectorstore.persist()
             
-            logger.info(f"Successfully stored {len(documents)} chunks in ChromaDB collection '{collection_name}'")
+            logger.info(f"Successfully stored {len(documents)} chunks in ChromaDB collection '{collection_name}' using {self.embedding_model_name}")
             
             return documents, vectorstore
             
@@ -327,13 +334,104 @@ Reasoning: [Brief explanation of why this classification was chosen]
                 'raw_response': response_text
             }
     
-    def process_pdf_and_classify(self, pdf_path: str, collection_name: str = "legal_documents") -> Dict[str, any]:
+    def search_similar_documents(self, query: str, collection_name: str = "legal_documents", k: int = 5) -> List[Document]:
         """
-        Complete pipeline: extract text, store in ChromaDB, and classify document type.
+        Search for similar document chunks using HuggingFace embeddings.
+        
+        Args:
+            query: Search query
+            collection_name: ChromaDB collection name
+            k: Number of similar documents to return
+            
+        Returns:
+            List of similar documents
+        """
+        try:
+            # Load existing vectorstore
+            vectorstore = Chroma(
+                collection_name=collection_name,
+                embedding_function=self.embeddings,
+                persist_directory=self.chroma_persist_directory
+            )
+            
+            # Perform similarity search
+            similar_docs = vectorstore.similarity_search(query, k=k)
+            
+            logger.info(f"Found {len(similar_docs)} similar documents for query: '{query}'")
+            
+            return similar_docs
+            
+        except Exception as e:
+            logger.error(f"Error searching similar documents: {str(e)}")
+            return []
+    
+    def rag_classify_with_context(self, text: str, collection_name: str = "legal_documents") -> Dict[str, any]:
+        """
+        Enhanced classification using RAG - retrieve similar documents for context before classification.
+        
+        Args:
+            text: Document text to classify
+            collection_name: ChromaDB collection name
+            
+        Returns:
+            Dictionary containing classification results with RAG context
+        """
+        try:
+            # Get a sample of the text for similarity search
+            sample_text = text[:1000] if len(text) > 1000 else text
+            
+            # Search for similar documents
+            similar_docs = self.search_similar_documents(sample_text, collection_name, k=3)
+            
+            # Create context from similar documents
+            context = ""
+            if similar_docs:
+                context = "\n\n**SIMILAR DOCUMENT EXAMPLES FROM DATABASE:**\n"
+                for i, doc in enumerate(similar_docs, 1):
+                    context += f"\nExample {i} (from {doc.metadata.get('document_name', 'Unknown')}):\n"
+                    context += f"{doc.page_content[:300]}...\n"
+            
+            # Enhanced prompt with RAG context
+            enhanced_prompt = self.classification_prompt.template.replace(
+                "**DOCUMENT TO CLASSIFY:**",
+                f"{context}\n\n**DOCUMENT TO CLASSIFY:**"
+            )
+            
+            enhanced_template = PromptTemplate(
+                input_variables=["document_text"],
+                template=enhanced_prompt
+            )
+            
+            # Truncate text if too long
+            sample_text = text[:4000] if len(text) > 4000 else text
+            
+            # Create the enhanced prompt
+            formatted_prompt = enhanced_template.format(document_text=sample_text)
+            
+            # Get classification from Gemini with RAG context
+            response = self.llm.invoke(formatted_prompt)
+            classification_text = response.content
+            
+            # Parse the response
+            parsed_result = self._parse_classification_response(classification_text)
+            parsed_result['rag_context_used'] = len(similar_docs) > 0
+            parsed_result['similar_documents_count'] = len(similar_docs)
+            
+            return parsed_result
+            
+        except Exception as e:
+            logger.error(f"Error in RAG classification: {str(e)}")
+            # Fallback to regular classification
+            return self.classify_document(text)
+    
+    def process_pdf_and_classify(self, pdf_path: str, collection_name: str = "legal_documents", use_rag: bool = True) -> Dict[str, any]:
+        """
+        Complete pipeline: extract text, store in ChromaDB with HuggingFace embeddings, and classify document type with Gemini.
         
         Args:
             pdf_path: Path to PDF file
             collection_name: ChromaDB collection name
+            use_rag: Whether to use RAG-enhanced classification
             
         Returns:
             Dictionary containing all results
@@ -348,15 +446,18 @@ Reasoning: [Brief explanation of why this classification was chosen]
             # Get document name from file path
             document_name = os.path.basename(pdf_path)
             
-            # Chunk and store in ChromaDB
+            # Chunk and store in ChromaDB with HuggingFace embeddings
             documents, vectorstore = self.chunk_and_store_document(
                 document_text, 
                 document_name, 
                 collection_name
             )
             
-            # Classify document type
-            classification = self.classify_document(document_text)
+            # Classify document type (with or without RAG)
+            if use_rag:
+                classification = self.rag_classify_with_context(document_text, collection_name)
+            else:
+                classification = self.classify_document(document_text)
             
             # Compile results
             results = {
@@ -365,6 +466,8 @@ Reasoning: [Brief explanation of why this classification was chosen]
                 'text_length': len(document_text),
                 'total_chunks': len(documents),
                 'collection_name': collection_name,
+                'embedding_model': self.embedding_model_name,
+                'classification_method': 'RAG-enhanced' if use_rag else 'Direct',
                 'classification': classification,
                 'processed_at': datetime.now().isoformat(),
                 'success': True
@@ -386,31 +489,50 @@ Reasoning: [Brief explanation of why this classification was chosen]
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize classifier
-    GOOGLE_API_KEY = ""  # Replace with your actual API key
+    # Initialize classifier with HuggingFace embeddings
+    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
     
     if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
         print("Please set your Google API key")
         exit(1)
     
-    classifier = LegalDocumentClassifier(GOOGLE_API_KEY)
+    # You can choose different HuggingFace embedding models:
+    # "sentence-transformers/all-MiniLM-L6-v2" (default, lightweight)
+    # "sentence-transformers/all-mpnet-base-v2" (better quality, larger)
+    # "sentence-transformers/multi-qa-MiniLM-L6-cos-v1" (good for Q&A)
+    # "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" (multilingual)
+    
+    classifier = LegalDocumentClassifier(
+        GOOGLE_API_KEY,
+        embedding_model="sentence-transformers/all-MiniLM-L6-v2"
+    )
     
     # Process a PDF file
     pdf_path = "Suryansh_OL.docx (1) (1) (1).pdf"  # Replace with your PDF path
     
     if os.path.exists(pdf_path):
-        results = classifier.process_pdf_and_classify(pdf_path)
+        # Process with RAG-enhanced classification
+        results = classifier.process_pdf_and_classify(pdf_path, use_rag=True)
         
         if results['success']:
             print(f"\n=== DOCUMENT CLASSIFICATION RESULTS ===")
             print(f"Document: {results['document_name']}")
+            print(f"Embedding Model: {results['embedding_model']}")
+            print(f"Classification Method: {results['classification_method']}")
             print(f"Type: {results['classification']['document_type']}")
             print(f"Confidence: {results['classification']['confidence']}%")
             print(f"Key Indicators: {', '.join(results['classification']['key_indicators'])}")
             print(f"Reasoning: {results['classification']['reasoning']}")
             print(f"Total Chunks Stored: {results['total_chunks']}")
+            
+            if results['classification'].get('rag_context_used'):
+                print(f"RAG Context: Used {results['classification']['similar_documents_count']} similar documents")
         else:
             print(f"Error processing document: {results.get('error', 'Unknown error')}")
     else:
-
         print(f"PDF file not found: {pdf_path}")
+        print("\nExample: Search similar documents")
+        similar_docs = classifier.search_similar_documents("insurance policy premium", k=3)
+        for i, doc in enumerate(similar_docs, 1):
+            print(f"\nSimilar Doc {i}: {doc.metadata.get('document_name', 'Unknown')}")
+            print(f"Content: {doc.page_content[:200]}...")

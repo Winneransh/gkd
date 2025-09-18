@@ -1,8 +1,10 @@
 """
 final_synthesizer.py
 
-Step 6: Synthesizes outputs from Steps 4A, 4B, and 5 into clean, coherent
-paragraph answers for presentation to users.
+Step 6: Synthesizes outputs from Steps 4A, 4B, and 5 into a single unified paragraph answer.
+Saves complete pipeline results to JSON file for non-truncated analysis.
+Updated to use HuggingFace embeddings and provide complete pipeline integration.
+FIXED: String literal syntax errors corrected.
 """
 
 import json
@@ -17,434 +19,512 @@ from langchain.prompts import PromptTemplate
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class FinalAnswerSynthesizer:
+class UnifiedFinalAnswerSynthesizer:
     """
-    Synthesizes all pipeline outputs into clean, coherent final answers
-    formatted as natural paragraphs for user consumption.
+    Synthesizes all pipeline outputs into a single, unified paragraph answer that
+    consolidates single queries, hybrid queries, and all search angles into one coherent response.
+    Compatible with HuggingFace embeddings and saves complete results to JSON.
     """
     
-    def __init__(self, google_api_key: str):
+    def __init__(self, google_api_key: str, embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
-        Initialize the final answer synthesizer.
+        Initialize the unified final answer synthesizer.
         
         Args:
             google_api_key: Google API key for Gemini
+            embedding_model: HuggingFace embedding model name (for compatibility)
         """
         self.google_api_key = google_api_key
+        self.embedding_model_name = embedding_model
         
-        # Initialize Gemini 2.5 Flash LLM
+        # Initialize Gemini 2.0 Flash LLM
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash-exp",
             google_api_key=google_api_key,
             temperature=0.2,  # Slightly higher for natural language
-            max_output_tokens=3072
+            max_output_tokens=4096
         )
         
-        # Create synthesis prompt
-        self.synthesis_prompt = self._create_synthesis_prompt()
+        # Create unified synthesis prompt
+        self.unified_synthesis_prompt = self._create_unified_synthesis_prompt()
     
-    def _create_synthesis_prompt(self) -> PromptTemplate:
+    def _create_unified_synthesis_prompt(self) -> PromptTemplate:
         """
-        Create comprehensive synthesis prompt for final answer generation.
-        
-        Returns:
-            PromptTemplate for final answer synthesis
+        Create comprehensive synthesis prompt for unified single-paragraph answer generation.
         """
         
-        prompt_template = """You are an expert legal document communication specialist. Your job is to synthesize complex analysis results into clear, natural, conversational answers that directly address the user's question.
+        prompt_template = """You are an expert legal document analyst who consolidates ALL analysis results into ONE comprehensive, flowing paragraph answer.
 
 **USER'S ORIGINAL QUESTION:** {user_question}
 **DOCUMENT TYPE:** {document_type}
 
-**ANALYSIS RESULTS TO SYNTHESIZE:**
+**ALL ANALYSIS SOURCES TO CONSOLIDATE:**
 
-**Individual Search Results (Step 4A):**
-{individual_answers}
+**Single Query Results:**
+{single_query_results}
 
-**Consensus Evaluation (Step 4B):**
-{consensus_evaluation}
+**Hybrid Query Results:**
+{hybrid_query_results}
 
-**Contradiction Resolution (Step 5):**
-{contradiction_resolution}
+**All Individual Search Angle Answers:**
+{all_search_angle_answers}
 
-**SYNTHESIS INSTRUCTIONS:**
+**Consensus Evaluation Findings:**
+{consensus_findings}
 
-**1. ANSWER STRUCTURE:**
-- **Direct Answer**: Start with a clear, direct answer to the user's question
-- **Supporting Details**: Provide specific information from the document
-- **Additional Context**: Include relevant context or caveats if needed
-- **Confidence Indication**: Subtly indicate the confidence level without technical jargon
+**Enhanced Resolution Results:**
+{resolution_findings}
 
-**2. COMMUNICATION STYLE:**
-- **Conversational**: Write as if speaking to someone who asked a question
-- **Clear and Simple**: Avoid technical terms, jargon, or complex explanations
-- **Natural Flow**: Use connecting phrases and smooth transitions
-- **User-Focused**: Address exactly what the user asked for
+**UNIFIED SYNTHESIS INSTRUCTIONS:**
 
-**3. INFORMATION PRIORITIZATION:**
-- **Primary**: Use consensus results and resolved contradictions as primary sources
-- **Supporting**: Include relevant individual answers that support the main finding
-- **Contextual**: Add helpful context from the document when relevant
-- **Balanced**: Present complete picture while staying focused on the user's question
+**1. COMPREHENSIVE CONSOLIDATION:**
+- Analyze ALL sources: single queries, hybrid queries, search angles, consensus, resolution
+- Extract the BEST and most ACCURATE information from across all sources
+- Eliminate redundant, contradictory, or low-quality responses
+- Prioritize specific, detailed answers with clear evidence
+- Use enhanced resolution as authoritative for resolved contradictions
 
-**4. CONFIDENCE HANDLING:**
-- **High Confidence**: Present answer as definitive with supporting evidence
-- **Medium Confidence**: Present answer with appropriate caveats ("based on the document" or "appears to be")
-- **Low/Contradictory**: Acknowledge uncertainty and present what information is available
-- **Resolved Contradictions**: Present the resolved answer with confidence
+**2. DEDUPLICATION STRATEGY:**
+- If multiple sources provide the same information, use it ONCE with highest confidence
+- If hybrid queries repeat single query information, prioritize the clearer response
+- If search angles give overlapping details, combine into comprehensive single mention
+- Ignore "not found" responses when better sources have the information
+- Eliminate vague or generic answers when specific details are available
 
-**5. DOCUMENT-SPECIFIC GUIDANCE:**
+**3. QUALITY ASSESSMENT:**
+- HIGH QUALITY: Specific amounts, dates, terms with clear document references
+- MEDIUM QUALITY: General information that addresses query but lacks specifics
+- LOW QUALITY: Vague responses, contradictions, or "information not available"
+- Use only HIGH and MEDIUM quality information, prioritizing HIGH quality
 
-**OFFER LETTER:**
-- Be specific about amounts, dates, and terms
-- Explain benefits and conditions clearly
-- Address work arrangements and expectations
-- Clarify legal obligations when relevant
+**4. SINGLE PARAGRAPH RESPONSE:**
+- Create ONE comprehensive paragraph that flows naturally
+- Include ALL relevant factual information that answers the user's question
+- Write in conversational, natural language (no bullet points or lists)
+- Present information authoritatively and confidently
+- Ensure smooth transitions between different pieces of information
 
-**HEALTH INSURANCE:**
-- Clearly explain coverage and limitations
-- Specify financial obligations (premiums, deductibles)
-- Explain eligibility requirements
-- Address geographic or temporal restrictions
+**5. INFORMATION INTEGRATION:**
+- Start with direct answer to the user's specific question
+- Add supporting details and context from the document
+- Include all relevant specifics (amounts, dates, conditions, etc.)
+- End with any additional relevant context or implications
 
-**OTHER LEGAL DOCUMENTS:**
-- Focus on the specific terms and conditions relevant to the query
-- Explain legal implications in simple terms
-- Provide context for understanding obligations or rights
+**EXAMPLE OF DESIRED OUTPUT:**
+"Based on your internship offer letter, you will receive a monthly stipend of INR 15,000 throughout the 3-month internship period running from July 1st to September 30th, 2024. Your work schedule will be Monday through Friday from 9 AM to 6 PM, with the flexibility to work remotely up to 2 days per week, and you'll be based primarily at the Bangalore office working on mobile app development projects. The position includes a completion certificate upon successful finish of the internship term, plus a performance-based bonus of up to INR 10,000 depending on your final evaluation, bringing your total potential compensation to INR 55,000 over the three-month period."
 
-**6. RESPONSE FORMAT:**
-Write 2-4 natural paragraphs that flow conversationally. Do not use bullet points, numbered lists, or structured sections. Write as if you're explaining the answer to someone in person.
+**SYNTHESIS APPROACH:**
+1. Identify ALL factual details that answer the user's question across all sources
+2. Remove duplicate information and prioritize most specific/accurate details
+3. Organize information logically within one flowing paragraph
+4. Present as definitive answer using the best available information
+5. Write in natural, conversational tone without technical language
 
-**EXAMPLE RESPONSE STYLE:**
-"Based on your offer letter, the monthly stipend for your internship is INR 12,000. This amount is clearly stated in Section 5 of the document and will be paid monthly throughout your 3-month internship period. Additionally, you'll receive a completion bonus of INR 10,000 at the end of the internship, provided you successfully complete the full term.
-
-The payment structure is straightforward - you'll receive the monthly stipend regularly, and the bonus is performance-based according to the document. This brings your total potential compensation to INR 46,000 over the three-month period."
-
-**SYNTHESIS GUIDELINES:**
-- If consensus is strong: Present answer confidently
-- If contradictions were resolved: Use the resolved answer
-- If multiple valid interpretations exist: Explain the different scenarios
-- If information is missing: Acknowledge gaps honestly
-- Always stay focused on answering the user's specific question
-
-**SYNTHESIZE THE FINAL ANSWER:**"""
+**CREATE ONE UNIFIED PARAGRAPH ANSWER:**"""
 
         return PromptTemplate(
-            input_variables=["user_question", "document_type", "individual_answers", "consensus_evaluation", "contradiction_resolution"],
+            input_variables=["user_question", "document_type", "single_query_results", 
+                           "hybrid_query_results", "all_search_angle_answers", 
+                           "consensus_findings", "resolution_findings"],
             template=prompt_template
         )
     
-    def synthesize_final_answer(self, user_question: str, rag_output: Dict[str, Any], 
-                               consensus_output: Dict[str, Any], resolution_output: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def synthesize_unified_answer(self, user_question: str, rag_output: Dict[str, Any], 
+                                 consensus_output: Dict[str, Any], resolution_output: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Synthesize final answer from all pipeline outputs.
-        
-        Args:
-            user_question: Original user question
-            rag_output: Output from Step 4A (LLMEnhancedRAG)
-            consensus_output: Output from Step 4B (ConsensusEvaluator)
-            resolution_output: Output from Step 5 (ContradictionResolver), optional
-            
-        Returns:
-            Dictionary containing synthesized final answer
+        Synthesize unified single-paragraph answer from all pipeline outputs.
         """
         try:
             # Validate inputs
             if 'error' in rag_output:
-                return {
-                    'error': 'RAG processing failed',
-                    'rag_error': rag_output['error'],
-                    'final_answer': 'I apologize, but I encountered an error while processing your question.',
-                    'synthesized_at': datetime.now().isoformat()
-                }
+                return self._create_error_response(user_question, "RAG processing failed", rag_output['error'])
             
             if 'error' in consensus_output:
-                return {
-                    'error': 'Consensus evaluation failed',
-                    'consensus_error': consensus_output['error'],
-                    'final_answer': 'I apologize, but I encountered an error while analyzing the document.',
-                    'synthesized_at': datetime.now().isoformat()
-                }
+                return self._create_error_response(user_question, "Consensus evaluation failed", consensus_output['error'])
             
-            # Extract information for synthesis
+            # Extract document information
             document_type = rag_output.get('document_type', 'Unknown')
+            embedding_model = rag_output.get('embedding_model', self.embedding_model_name)
             
-            # Prepare individual answers summary
-            individual_answers_summary = self._prepare_individual_answers_summary(rag_output)
+            # Organize all answers by type and extract useful information
+            organized_results = self._organize_all_pipeline_results(rag_output, consensus_output, resolution_output)
             
-            # Prepare consensus evaluation summary
-            consensus_summary = self._prepare_consensus_summary(consensus_output)
-            
-            # Prepare contradiction resolution summary
-            resolution_summary = self._prepare_resolution_summary(resolution_output) if resolution_output else "No contradictions required resolution."
-            
-            # Generate final synthesized answer
-            synthesized_answer = self._generate_synthesized_answer(
+            # Generate unified single paragraph answer
+            unified_answer = self._generate_unified_paragraph_answer(
                 user_question=user_question,
                 document_type=document_type,
-                individual_answers=individual_answers_summary,
-                consensus_evaluation=consensus_summary,
-                contradiction_resolution=resolution_summary
+                organized_results=organized_results
             )
             
-            # Determine overall confidence and quality metrics
-            quality_metrics = self._calculate_quality_metrics(rag_output, consensus_output, resolution_output)
+            # Calculate comprehensive quality metrics
+            quality_metrics = self._calculate_unified_quality_metrics(
+                rag_output, consensus_output, resolution_output, organized_results
+            )
             
             return {
                 'user_question': user_question,
                 'document_type': document_type,
-                'final_answer': synthesized_answer,
+                'embedding_model': embedding_model,
+                'unified_final_answer': unified_answer,
+                'sources_analyzed': organized_results['source_summary'],
                 'quality_metrics': quality_metrics,
                 'synthesis_success': True,
                 'synthesized_at': datetime.now().isoformat()
             }
             
         except Exception as e:
-            logger.error(f"Error in final answer synthesis: {str(e)}")
-            return {
-                'error': str(e),
-                'user_question': user_question,
-                'final_answer': 'I apologize, but I encountered an error while preparing your answer. Please try rephrasing your question.',
-                'synthesis_success': False,
-                'synthesized_at': datetime.now().isoformat()
+            logger.error(f"Error in unified answer synthesis: {str(e)}")
+            return self._create_error_response(user_question, "Synthesis failed", str(e))
+    
+    def _organize_all_pipeline_results(self, rag_output: Dict[str, Any], consensus_output: Dict[str, Any], 
+                                      resolution_output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Organize and categorize all pipeline results for synthesis.
+        """
+        individual_answers = rag_output.get('individual_answers', {})
+        
+        organized = {
+            'single_query_answers': [],
+            'hybrid_query_answers': [],
+            'all_search_angle_answers': [],
+            'consensus_answers': [],
+            'resolution_answers': [],
+            'source_summary': {
+                'total_single_queries': 0,
+                'total_hybrid_queries': 0,
+                'total_search_angles': 0,
+                'consensus_evaluations': 0,
+                'resolutions_applied': 0
             }
-    
-    def _prepare_individual_answers_summary(self, rag_output: Dict[str, Any]) -> str:
-        """
-        Prepare summary of individual answers from Step 4A.
+        }
         
-        Args:
-            rag_output: RAG output from Step 4A
+        # Process individual answers from RAG output
+        for query_id, query_data in individual_answers.items():
+            query_type = query_data.get('query_type', 'unknown')
+            original_query = query_data.get('original_query', '')
+            angle_answers = query_data.get('angle_answers', {})
             
-        Returns:
-            Formatted summary of individual answers
-        """
-        try:
-            individual_answers = rag_output.get('individual_answers', {})
+            # Collect successful answers
+            successful_answers = []
+            for angle_id, angle_data in angle_answers.items():
+                if angle_data.get('answer_success', False):
+                    answer = angle_data.get('answer', '').strip()
+                    if answer and answer != 'No relevant information found in the document.':
+                        successful_answers.append(answer)
+                        organized['all_search_angle_answers'].append(answer)
             
-            summary_parts = []
-            for query_id, query_data in individual_answers.items():
-                original_query = query_data.get('original_query', 'Unknown Query')
-                angle_answers = query_data.get('angle_answers', {})
-                
-                summary_parts.append(f"**{query_id} ({original_query}):**")
-                
-                for angle_id, angle_data in angle_answers.items():
-                    if angle_data.get('answer_success', False):
-                        answer = angle_data.get('answer', 'No answer')
-                        summary_parts.append(f"  {angle_id}: {answer}")
-                
-                summary_parts.append("")  # Empty line for separation
+            # Categorize by query type
+            if 'single' in query_type.lower() and successful_answers:
+                organized['single_query_answers'].extend(successful_answers)
+                organized['source_summary']['total_single_queries'] += 1
+            elif 'hybrid' in query_type.lower() and successful_answers:
+                organized['hybrid_query_answers'].extend(successful_answers)
+                organized['source_summary']['total_hybrid_queries'] += 1
             
-            return "\n".join(summary_parts) if summary_parts else "No individual answers available."
-            
-        except Exception as e:
-            logger.error(f"Error preparing individual answers summary: {str(e)}")
-            return "Error summarizing individual answers."
-    
-    def _prepare_consensus_summary(self, consensus_output: Dict[str, Any]) -> str:
-        """
-        Prepare summary of consensus evaluation from Step 4B.
+            organized['source_summary']['total_search_angles'] += len(successful_answers)
         
-        Args:
-            consensus_output: Consensus output from Step 4B
-            
-        Returns:
-            Formatted summary of consensus evaluation
-        """
-        try:
-            consensus_evaluations = consensus_output.get('consensus_evaluations', {})
-            
-            summary_parts = []
-            for query_id, evaluation in consensus_evaluations.items():
-                if evaluation.get('evaluation_success', False):
-                    final_verdict = evaluation.get('final_verdict', {})
-                    confidence_assessment = evaluation.get('confidence_assessment', {})
-                    
-                    verdict = final_verdict.get('verdict', 'Unknown')
-                    final_answer = final_verdict.get('final_answer', 'No answer provided')
-                    confidence_level = confidence_assessment.get('confidence_level', 'unknown')
-                    reasoning = final_verdict.get('reasoning', 'No reasoning provided')
-                    
-                    summary_parts.append(f"**{query_id}:**")
-                    summary_parts.append(f"  Verdict: {verdict}")
-                    summary_parts.append(f"  Answer: {final_answer}")
-                    summary_parts.append(f"  Confidence: {confidence_level}")
-                    summary_parts.append(f"  Reasoning: {reasoning}")
-                    summary_parts.append("")
-            
-            return "\n".join(summary_parts) if summary_parts else "No consensus evaluation available."
-            
-        except Exception as e:
-            logger.error(f"Error preparing consensus summary: {str(e)}")
-            return "Error summarizing consensus evaluation."
-    
-    def _prepare_resolution_summary(self, resolution_output: Dict[str, Any]) -> str:
-        """
-        Prepare summary of contradiction resolution from Step 5.
+        # Process consensus evaluation results
+        consensus_evaluations = consensus_output.get('consensus_evaluations', {})
+        for query_id, evaluation in consensus_evaluations.items():
+            if evaluation.get('evaluation_success', False):
+                final_verdict = evaluation.get('final_verdict', {})
+                verdict = final_verdict.get('verdict', '')
+                
+                if verdict in ['CORRECT', 'SATISFACTORY']:
+                    final_answer = final_verdict.get('final_answer', '')
+                    if final_answer and final_answer.strip():
+                        organized['consensus_answers'].append(final_answer)
+                        organized['source_summary']['consensus_evaluations'] += 1
         
-        Args:
-            resolution_output: Resolution output from Step 5
-            
-        Returns:
-            Formatted summary of contradiction resolution
-        """
-        try:
-            if not resolution_output or 'error' in resolution_output:
-                return "No contradiction resolution performed."
-            
+        # Process resolution results
+        if resolution_output and 'error' not in resolution_output:
             resolutions = resolution_output.get('resolutions', {})
-            
-            if not resolutions:
-                return "No contradictions required resolution."
-            
-            summary_parts = []
             for query_id, resolution in resolutions.items():
                 if resolution.get('resolution_success', False):
-                    resolution_answer = resolution.get('resolution_answer', 'No resolution provided')
-                    
-                    summary_parts.append(f"**{query_id} Resolution:**")
-                    summary_parts.append(f"  {resolution_answer}")
-                    summary_parts.append("")
-            
-            return "\n".join(summary_parts) if summary_parts else "Contradiction resolution completed with no specific results."
-            
-        except Exception as e:
-            logger.error(f"Error preparing resolution summary: {str(e)}")
-            return "Error summarizing contradiction resolution."
-    
-    def _generate_synthesized_answer(self, user_question: str, document_type: str, 
-                                    individual_answers: str, consensus_evaluation: str, 
-                                    contradiction_resolution: str) -> str:
-        """
-        Generate final synthesized answer using LLM.
+                    resolution_answer = resolution.get('resolution_answer', '')
+                    if resolution_answer and resolution_answer.strip():
+                        organized['resolution_answers'].append(resolution_answer)
+                        organized['source_summary']['resolutions_applied'] += 1
         
-        Args:
-            user_question: Original user question
-            document_type: Type of document
-            individual_answers: Summary of individual answers
-            consensus_evaluation: Summary of consensus evaluation
-            contradiction_resolution: Summary of contradiction resolution
-            
-        Returns:
-            Synthesized final answer
+        return organized
+    
+    def _generate_unified_paragraph_answer(self, user_question: str, document_type: str, 
+                                          organized_results: Dict[str, Any]) -> str:
+        """
+        Generate unified single paragraph answer using LLM synthesis.
         """
         try:
+            # Format all results for prompt
+            single_query_text = "\n".join([f"- {answer}" for answer in organized_results['single_query_answers']])
+            hybrid_query_text = "\n".join([f"- {answer}" for answer in organized_results['hybrid_query_answers']])
+            all_angles_text = "\n".join([f"- {answer}" for answer in organized_results['all_search_angle_answers']])
+            consensus_text = "\n".join([f"- {answer}" for answer in organized_results['consensus_answers']])
+            resolution_text = "\n".join([f"- {answer}" for answer in organized_results['resolution_answers']])
+            
             # Create synthesis prompt
-            formatted_prompt = self.synthesis_prompt.format(
+            formatted_prompt = self.unified_synthesis_prompt.format(
                 user_question=user_question,
                 document_type=document_type,
-                individual_answers=individual_answers,
-                consensus_evaluation=consensus_evaluation,
-                contradiction_resolution=contradiction_resolution
+                single_query_results=single_query_text or "No single query results available",
+                hybrid_query_results=hybrid_query_text or "No hybrid query results available",
+                all_search_angle_answers=all_angles_text or "No search angle answers available",
+                consensus_findings=consensus_text or "No consensus findings available",
+                resolution_findings=resolution_text or "No resolution findings available"
             )
             
-            # Get synthesized answer from LLM
+            # Get unified answer from LLM
             response = self.llm.invoke(formatted_prompt)
-            synthesized_answer = response.content.strip()
+            unified_answer = response.content.strip()
             
-            return synthesized_answer
+            # Clean and format as single paragraph
+            unified_answer = self._ensure_single_paragraph(unified_answer)
+            
+            return unified_answer
             
         except Exception as e:
-            logger.error(f"Error generating synthesized answer: {str(e)}")
-            return f"I apologize, but I encountered an error while formulating your answer. The document appears to contain information relevant to your question, but I'm unable to present it clearly at the moment."
+            logger.error(f"Error generating unified paragraph answer: {str(e)}")
+            return "I apologize, but I encountered an error while analyzing your document. The information appears to be available, but I'm unable to present it clearly at the moment."
     
-    def _calculate_quality_metrics(self, rag_output: Dict[str, Any], consensus_output: Dict[str, Any], 
-                                  resolution_output: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _ensure_single_paragraph(self, answer: str) -> str:
         """
-        Calculate quality metrics for the synthesized answer.
+        Ensure the answer is formatted as a single flowing paragraph.
+        """
+        # Remove line breaks and join into single paragraph
+        lines = [line.strip() for line in answer.split('\n') if line.strip()]
         
-        Args:
-            rag_output: RAG output from Step 4A
-            consensus_output: Consensus output from Step 4B
-            resolution_output: Resolution output from Step 5
-            
-        Returns:
-            Quality metrics dictionary
+        # Remove any bullet points or formatting
+        cleaned_lines = []
+        for line in lines:
+            cleaned_line = line.replace('•', '').replace('-', '').replace('*', '').strip()
+            if cleaned_line:
+                cleaned_lines.append(cleaned_line)
+        
+        # Join into single paragraph with proper spacing
+        single_paragraph = ' '.join(cleaned_lines)
+        
+        # Clean up multiple spaces
+        import re
+        single_paragraph = re.sub(r'\s+', ' ', single_paragraph)
+        
+        return single_paragraph.strip()
+    
+    def _calculate_unified_quality_metrics(self, rag_output: Dict[str, Any], consensus_output: Dict[str, Any], 
+                                          resolution_output: Optional[Dict[str, Any]], organized_results: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Calculate comprehensive quality metrics for the unified answer.
         """
         try:
-            # RAG metrics
-            rag_success_rate = 0
-            total_rag_queries = rag_output.get('total_search_angles_processed', 0)
-            successful_rag_queries = rag_output.get('successful_answers', 0)
-            if total_rag_queries > 0:
-                rag_success_rate = (successful_rag_queries / total_rag_queries) * 100
+            source_summary = organized_results['source_summary']
             
-            # Consensus metrics
+            # Calculate source utilization
+            total_sources_available = (
+                source_summary['total_single_queries'] + 
+                source_summary['total_hybrid_queries'] + 
+                source_summary['consensus_evaluations'] + 
+                source_summary['resolutions_applied']
+            )
+            
+            sources_with_content = sum([
+                1 if organized_results['single_query_answers'] else 0,
+                1 if organized_results['hybrid_query_answers'] else 0,
+                1 if organized_results['consensus_answers'] else 0,
+                1 if organized_results['resolution_answers'] else 0
+            ])
+            
+            source_utilization = (sources_with_content / 4 * 100) if total_sources_available > 0 else 0
+            
+            # RAG success rate
+            total_angles = rag_output.get('total_search_angles_processed', 0)
+            successful_angles = rag_output.get('successful_answers', 0)
+            rag_success_rate = (successful_angles / total_angles * 100) if total_angles > 0 else 0
+            
+            # Consensus quality
             consensus_evaluations = consensus_output.get('consensus_evaluations', {})
-            high_confidence_count = 0
-            medium_confidence_count = 0
-            low_confidence_count = 0
-            contradictory_count = 0
+            high_quality_consensus = sum(1 for eval in consensus_evaluations.values() 
+                                       if eval.get('final_verdict', {}).get('verdict') in ['CORRECT', 'SATISFACTORY'])
+            consensus_quality = (high_quality_consensus / len(consensus_evaluations) * 100) if consensus_evaluations else 0
             
-            for evaluation in consensus_evaluations.values():
-                if evaluation.get('evaluation_success', False):
-                    confidence_level = evaluation.get('confidence_assessment', {}).get('confidence_level', 'low')
-                    verdict = evaluation.get('final_verdict', {}).get('verdict', 'INSUFFICIENT')
-                    
-                    if confidence_level == 'high' or verdict == 'CORRECT':
-                        high_confidence_count += 1
-                    elif confidence_level == 'medium' or verdict == 'SATISFACTORY':
-                        medium_confidence_count += 1
-                    elif verdict == 'CONTRADICTORY':
-                        contradictory_count += 1
-                    else:
-                        low_confidence_count += 1
-            
-            # Resolution metrics
-            resolution_success = False
-            if resolution_output and 'error' not in resolution_output:
-                successfully_resolved = resolution_output.get('successfully_resolved', 0)
-                contradictory_queries_found = resolution_output.get('contradictory_queries_found', 0)
-                if contradictory_queries_found > 0:
-                    resolution_success = successfully_resolved == contradictory_queries_found
-            
-            # Overall quality score
-            total_queries = len(consensus_evaluations)
-            if total_queries > 0:
-                quality_score = ((high_confidence_count * 100) + (medium_confidence_count * 75) + 
-                               (low_confidence_count * 25)) / (total_queries * 100) * 100
-            else:
-                quality_score = 0
+            # Overall synthesis quality score
+            synthesis_quality = (
+                (rag_success_rate * 0.4) + 
+                (consensus_quality * 0.3) + 
+                (source_utilization * 0.3)
+            )
             
             return {
-                'rag_success_rate': round(rag_success_rate, 1),
-                'total_queries_analyzed': total_queries,
-                'high_confidence_queries': high_confidence_count,
-                'medium_confidence_queries': medium_confidence_count,
-                'low_confidence_queries': low_confidence_count,
-                'contradictory_queries': contradictory_count,
-                'contradictions_resolved': resolution_success,
-                'overall_quality_score': round(quality_score, 1),
-                'analysis_completeness': 'Complete' if rag_success_rate > 80 else 'Partial'
+                'sources_utilized': {
+                    'single_queries': len(organized_results['single_query_answers']),
+                    'hybrid_queries': len(organized_results['hybrid_query_answers']),
+                    'search_angles': len(organized_results['all_search_angle_answers']),
+                    'consensus_findings': len(organized_results['consensus_answers']),
+                    'resolutions': len(organized_results['resolution_answers'])
+                },
+                'processing_metrics': {
+                    'rag_success_rate': round(rag_success_rate, 1),
+                    'consensus_quality_rate': round(consensus_quality, 1),
+                    'source_utilization_rate': round(source_utilization, 1),
+                    'synthesis_quality_score': round(synthesis_quality, 1)
+                },
+                'answer_characteristics': {
+                    'format': 'single_paragraph',
+                    'completeness': 'High' if synthesis_quality > 80 else 'Medium' if synthesis_quality > 60 else 'Low',
+                    'sources_consolidated': total_sources_available,
+                    'deduplication_applied': True
+                }
             }
             
         except Exception as e:
-            logger.error(f"Error calculating quality metrics: {str(e)}")
+            logger.error(f"Error calculating unified quality metrics: {str(e)}")
             return {
-                'overall_quality_score': 0,
-                'analysis_completeness': 'Error'
+                'synthesis_quality_score': 0,
+                'completeness': 'Error'
             }
-
-# Example usage
-if __name__ == "__main__":
-    # API key for final synthesizer
-    GOOGLE_API_KEY = "your_google_api_key_7_here"  # 7th API key for this component
     
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_7_here":
-        print("Please set your Google API key for the final synthesizer")
-        exit(1)
+    def save_complete_results_to_json(self, complete_pipeline_result: Dict[str, Any], filename: Optional[str] = None) -> str:
+        """
+        Save complete pipeline results to JSON file for full non-truncated analysis.
+        """
+        try:
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"complete_legal_document_analysis_{timestamp}.json"
+            
+            if not filename.endswith('.json'):
+                filename += '.json'
+            
+            # Save with proper formatting and encoding
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(complete_pipeline_result, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Complete pipeline results saved to: {filename}")
+            return filename
+            
+        except Exception as e:
+            logger.error(f"Error saving complete results JSON: {str(e)}")
+            return f"Error saving file: {str(e)}"
     
-    # Initialize synthesizer
-    synthesizer = FinalAnswerSynthesizer(GOOGLE_API_KEY)
+    def create_complete_pipeline_result(self, user_query: str, classification_result: Dict[str, Any],
+                                       query_analysis: Dict[str, Any], search_angles: Dict[str, Any],
+                                       rag_results: Dict[str, Any], consensus_results: Dict[str, Any],
+                                       resolution_results: Dict[str, Any], unified_synthesis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create complete pipeline result with all step outputs for JSON export.
+        """
+        # Calculate successful steps first
+        successful_steps = sum([
+            1 if classification_result.get('success', False) else 0,
+            1 if 'error' not in query_analysis else 0,
+            1 if 'error' not in search_angles else 0,
+            1 if 'error' not in rag_results else 0,
+            1 if 'error' not in consensus_results else 0,
+            1 if 'error' not in resolution_results else 0
+        ])
+        
+        return {
+            'pipeline_metadata': {
+                'user_query': user_query,
+                'processing_timestamp': datetime.now().isoformat(),
+                'pipeline_version': '2.0_unified_synthesis_huggingface',
+                'embedding_model': unified_synthesis.get('embedding_model', self.embedding_model_name),
+                'processing_stages': 6,
+                'synthesis_type': 'unified_single_paragraph'
+            },
+            'user_question_analysis': {
+                'original_question': user_query,
+                'question_complexity': 'high' if len(user_query.split()) > 8 else 'medium' if len(user_query.split()) > 4 else 'simple',
+                'expected_answer_components': user_query.count(' and ') + user_query.count(' or ') + 1
+            },
+            'step_1_document_classification': {
+                'status': 'success' if classification_result.get('success', False) else 'failed',
+                'document_type': classification_result.get('classification', {}).get('document_type', 'Unknown'),
+                'confidence': classification_result.get('classification', {}).get('confidence', 0),
+                'key_indicators': classification_result.get('classification', {}).get('key_indicators', []),
+                'chunks_stored': classification_result.get('total_chunks', 0),
+                'full_result': classification_result
+            },
+            'step_2_query_analysis': {
+                'status': 'success' if 'error' not in query_analysis else 'failed',
+                'single_queries_generated': len(query_analysis.get('single_queries', [])),
+                'hybrid_queries_generated': len(query_analysis.get('hybrid_queries', [])),
+                'total_query_components': len(query_analysis.get('single_queries', [])) + len(query_analysis.get('hybrid_queries', [])),
+                'query_breakdown': {
+                    'single_queries': query_analysis.get('single_queries', []),
+                    'hybrid_queries': query_analysis.get('hybrid_queries', [])
+                },
+                'full_result': query_analysis
+            },
+            'step_3_search_angle_generation': {
+                'status': 'success' if 'error' not in search_angles else 'failed',
+                'total_search_angles_generated': search_angles.get('total_angles_generated', 0),
+                'angles_per_query': 5,
+                'search_angle_breakdown': search_angles.get('search_angles', {}),
+                'full_result': search_angles
+            },
+            'step_4a_individual_rag_processing': {
+                'status': 'success' if 'error' not in rag_results else 'failed',
+                'search_angles_processed': rag_results.get('total_search_angles_processed', 0),
+                'successful_answers': rag_results.get('successful_answers', 0),
+                'success_rate': f"{(rag_results.get('successful_answers', 0) / max(rag_results.get('total_search_angles_processed', 1), 1) * 100):.1f}%",
+                'individual_answers_detailed': rag_results.get('individual_answers', {}),
+                'embedding_model_used': rag_results.get('embedding_model', 'Unknown'),
+                'full_result': rag_results
+            },
+            'step_4b_consensus_evaluation': {
+                'status': 'success' if 'error' not in consensus_results else 'failed',
+                'queries_evaluated': len(consensus_results.get('consensus_evaluations', {})),
+                'verdicts_summary': consensus_results.get('overall_summary', {}).get('verdicts_summary', {}),
+                'confidence_distribution': consensus_results.get('overall_summary', {}).get('confidence_distribution', {}),
+                'detailed_consensus_evaluations': consensus_results.get('consensus_evaluations', {}),
+                'full_result': consensus_results
+            },
+            'step_5_enhanced_resolution': {
+                'status': 'success' if 'error' not in resolution_results else 'failed',
+                'contradictory_queries_found': resolution_results.get('contradictory_queries_found', 0),
+                'successfully_resolved': resolution_results.get('successfully_resolved', 0),
+                'enhanced_features_used': {
+                    'web_searches_performed': resolution_results.get('web_searches_performed', 0),
+                    'duration_calculations_performed': resolution_results.get('duration_calculations_performed', 0)
+                },
+                'detailed_resolutions': resolution_results.get('resolutions', {}),
+                'full_result': resolution_results
+            },
+            'step_6_unified_final_synthesis': {
+                'status': 'success' if unified_synthesis.get('synthesis_success', False) else 'failed',
+                'synthesis_approach': 'unified_single_paragraph',
+                'sources_analyzed': unified_synthesis.get('sources_analyzed', {}),
+                'quality_metrics': unified_synthesis.get('quality_metrics', {}),
+                'unified_answer': unified_synthesis.get('unified_final_answer', ''),
+                'full_result': unified_synthesis
+            },
+            'final_consolidated_answer': {
+                'user_question': user_query,
+                'document_type': classification_result.get('classification', {}).get('document_type', 'Unknown'),
+                'unified_paragraph_answer': unified_synthesis.get('unified_final_answer', 'Answer not available'),
+                'answer_quality': unified_synthesis.get('quality_metrics', {}).get('answer_characteristics', {}).get('completeness', 'Unknown'),
+                'sources_utilized': unified_synthesis.get('sources_analyzed', {}).get('total_single_queries', 0) + unified_synthesis.get('sources_analyzed', {}).get('total_hybrid_queries', 0),
+                'confidence_indicators': {
+                    'rag_success_rate': rag_results.get('successful_answers', 0) / max(rag_results.get('total_search_angles_processed', 1), 1) * 100,
+                    'consensus_quality': len([e for e in consensus_results.get('consensus_evaluations', {}).values() if e.get('final_verdict', {}).get('verdict') in ['CORRECT', 'SATISFACTORY']]),
+                    'resolution_applied': resolution_results.get('successfully_resolved', 0) > 0
+                }
+            },
+            'pipeline_performance_summary': {
+                'total_processing_steps': 6,
+                'successful_steps': successful_steps,
+                'overall_pipeline_success_rate': f"{(successful_steps / 6 * 100):.1f}%",
+                'final_synthesis_quality': unified_synthesis.get('quality_metrics', {}).get('processing_metrics', {}).get('synthesis_quality_score', 0),
+                'embedding_model_consistency': unified_synthesis.get('embedding_model', 'Unknown'),
+                'pipeline_completion_timestamp': datetime.now().isoformat()
+            }
+        }
     
-    print("=== FINAL ANSWER SYNTHESIZER DEMO ===")
-    print("This component synthesizes all analysis results into clean, natural answers:")
-    print("1. Takes individual answers from Step 4A")
-    print("2. Takes consensus evaluation from Step 4B") 
-    print("3. Takes contradiction resolution from Step 5 (if any)")
-    print("4. Creates natural, conversational paragraph answer")
-    print("5. Includes quality metrics and confidence indicators")
-    print("\nExample synthesis:")
-    print("Input: Complex analysis with 15 individual answers and consensus")
-    print("Output: 'Based on your offer letter, the monthly stipend is INR 12,000...'")
+    def _create_error_response(self, user_question: str, error_type: str, error_message: str) -> Dict[str, Any]:
+        """Create standardized error response."""
+        return {
+            'error': error_type,
+            'error_details': error_message,
+            'user_question': user_question,
+            'unified_final_answer': 'I apologize, but I encountered an error while processing your question. Please try rephrasing your question or check if the document contains the information you are looking for.',
+            'synthesis_success': False,
+            'synthesized_at': datetime.now().isoformat()
+        }
