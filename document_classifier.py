@@ -508,7 +508,7 @@ if __name__ == "__main__":
     )
     
     # Process a PDF file
-    pdf_path = "Suryansh_OL.docx (1) (1) (1).pdf"  # Replace with your PDF path
+    pdf_path = "offerletter.pdf" # Replace with your PDF path
     
     if os.path.exists(pdf_path):
         # Process with RAG-enhanced classification
