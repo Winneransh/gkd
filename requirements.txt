@@ -1,16 +1,29 @@
+## Web API
+fastapi==0.110.2
+uvicorn==0.30.1
+pydantic==2.8.2
+python-multipart==0.0.9
+
+## Google Generative AI SDK (for grounding/web search in contradiction resolver)
+google-genai==0.3.0
+
+## LangChain ecosystem
 langchain==0.0.335
 langchain-google-genai==0.0.6
 langchain-huggingface==0.0.1
 langchain-community==0.0.8
 
-# Vector database
+## Vector database
 chromadb==0.4.17
 
-# Embeddings and transformers
+## Embeddings and transformers
 sentence-transformers==2.2.2
 transformers==4.35.2
 torch==2.1.1
 
-# PDF processing
+## PDF processing
 PyMuPDF==1.23.8
 pdfplumber==0.10.3
+
+## Utilities
+python-dateutil==2.9.0.post0
