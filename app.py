@@ -10,10 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Your existing imports (unchanged)
 from document_classifier import LegalDocumentClassifier
 import legal_document_chatbot
+from chroma_config import ChromaConfig
 
 app = FastAPI(title="Legal Document Assistant", version="1.0.0")
 
@@ -28,7 +33,7 @@ app.add_middleware(
 
 # Configuration
 UPLOAD_FOLDER = Path('uploads')
-GOOGLE_API_KEY = "AIzaSyBTyuRM-0x_T3Fs3ornVKvnvyM417GTOcc"
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 
 # Create directories
 UPLOAD_FOLDER.mkdir(exist_ok=True)
@@ -53,10 +58,15 @@ class UploadResponse(BaseModel):
 
 # Utilities
 def check_api_key():
-    return GOOGLE_API_KEY and 'your_google_api_key' not in GOOGLE_API_KEY
+    return GOOGLE_API_KEY and GOOGLE_API_KEY.strip() != "" and 'your_google_api_key' not in GOOGLE_API_KEY
 
 def chromadb_exists():
-    return Path("./chroma_db").exists() and any(Path("./chroma_db").iterdir())
+    """Check if Chroma Cloud is properly configured"""
+    try:
+        config = ChromaConfig.from_environment()
+        return config.is_cloud_configured()
+    except Exception:
+        return False
 
 # Routes
 @app.get("/")
@@ -82,7 +92,8 @@ async def upload_document(file: UploadFile = File(...)):
     
     try:
         # Process with your classifier (auto-creates ChromaDB)
-        classifier = LegalDocumentClassifier(GOOGLE_API_KEY)
+        chroma_config = ChromaConfig.from_environment()
+        classifier = LegalDocumentClassifier(GOOGLE_API_KEY, chroma_config=chroma_config)
         result = classifier.process_pdf_and_classify(str(file_path))
         
         # Clean up temp file
@@ -117,7 +128,7 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/chat", response_model=ChatResponse)
 async def chat_with_document(request: ChatRequest):
     if not chromadb_exists():
-        raise HTTPException(400, "No documents uploaded. ChromaDB not found.")
+        raise HTTPException(400, "Chroma Cloud not configured. Please set CHROMA_API_KEY, CHROMA_TENANT, and CHROMA_DATABASE in your .env file.")
     
     if not chatbot_instance:
         raise HTTPException(400, "Chatbot not initialized. Upload document first.")

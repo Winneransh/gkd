@@ -356,8 +356,12 @@ class SimplePipelineTester:
 def main():
     """Main function to run the stipend and duration analysis."""
     
-    # Configuration - CHANGE THESE VALUES
-    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # ⚠️ Replace with your actual API key
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    # Configuration
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
     PDF_PATH = "Suryansh_OL.docx (1) (1) (1).pdf"  # ⚠️ Replace with your document path
     EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
     
@@ -369,7 +373,7 @@ def main():
     print("=" * 60)
     
     # Validate configuration
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         print("❌ CONFIGURATION ERROR:")
         print("   Please set your Google API key in the GOOGLE_API_KEY variable")
         print("   Get your API key from: https://makersuite.google.com/app/apikey")

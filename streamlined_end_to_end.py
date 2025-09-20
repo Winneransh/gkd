@@ -11,6 +11,10 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Suppress all logging except critical errors
 logging.getLogger().setLevel(logging.CRITICAL)
@@ -24,6 +28,7 @@ from llm_enhanced_rag import LLMEnhancedRAG
 from consensus_evaluator import ConsensusEvaluator
 from contradiction_resolver import EnhancedContradictionResolver
 from final_synthesizer import UnifiedFinalAnswerSynthesizer  # FIXED: Was FinalAnswerSynthesizer
+from chroma_config import ChromaConfig
 
 class StreamlinedPipeline:
     """
@@ -42,12 +47,15 @@ class StreamlinedPipeline:
         self.document_type = document_type
         self.embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
         
-        # Initialize all components with same API key - FIXED: Simplified API key management
+        # Initialize Chroma configuration for cloud service
+        self.chroma_config = ChromaConfig.from_environment()
+        
+        # Initialize all components with same API key and cloud config - FIXED: Simplified API key management
         self.query_analyzer = LegalDocumentQueryAnalyzer(self.google_api_key)
         self.search_generator = SearchQueryGenerator(self.google_api_key)
-        self.rag_system = LLMEnhancedRAG(self.google_api_key, embedding_model=self.embedding_model)
-        self.consensus_evaluator = ConsensusEvaluator([self.google_api_key], embedding_model=self.embedding_model)
-        self.contradiction_resolver = EnhancedContradictionResolver(self.google_api_key, embedding_model=self.embedding_model)
+        self.rag_system = LLMEnhancedRAG(self.google_api_key, chroma_config=self.chroma_config, embedding_model=self.embedding_model)
+        self.consensus_evaluator = ConsensusEvaluator([self.google_api_key], chroma_config=self.chroma_config, embedding_model=self.embedding_model)
+        self.contradiction_resolver = EnhancedContradictionResolver(self.google_api_key, chroma_config=self.chroma_config, embedding_model=self.embedding_model)
         self.final_synthesizer = UnifiedFinalAnswerSynthesizer(self.google_api_key, embedding_model=self.embedding_model)  # FIXED: Class name
     
     def process_query(self, user_query: str) -> Dict[str, Any]:
@@ -150,11 +158,11 @@ class StreamlinedPipeline:
 def main():
     """Main execution function."""
     
-    # FIXED: Single API key configuration
-    GOOGLE_API_KEY = 'your_google_api_key_here'  # Replace with your actual Google API key
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
     
     # Check API key
-    if not GOOGLE_API_KEY or 'your_google_api_key' in GOOGLE_API_KEY:
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         return {
             'error': 'Please set your Google API key in GOOGLE_API_KEY variable',
             'success': False

@@ -405,10 +405,14 @@ Keywords: {query_keywords}
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize components
-    GOOGLE_API_KEY = ""  # Replace with your actual API key
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         print("Please set your Google API key")
         exit(1)
     

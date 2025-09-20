@@ -9,7 +9,11 @@ import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any
+from dotenv import load_dotenv
 import streamlined_end_to_end
+
+# Load environment variables
+load_dotenv()
 
 class LegalDocumentChatbot:
     """
@@ -103,17 +107,19 @@ class LegalDocumentChatbot:
 def main():
     """Main function to start chatbot."""
     
-    # FIXED: Single API key configuration
-    GOOGLE_API_KEY = 'your_google_api_key_here'  # Replace with your actual Google API key
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
     
     # Check API key
-    if not GOOGLE_API_KEY or 'your_google_api_key' in GOOGLE_API_KEY:
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         print("Please set your Google API key in GOOGLE_API_KEY variable")
         return
     
-    # Check ChromaDB
-    if not os.path.exists("./chroma_db"):
-        print("ChromaDB folder not found. Please process documents first.")
+    # Check Chroma Cloud configuration
+    from chroma_config import ChromaConfig
+    config = ChromaConfig.from_environment()
+    if not config.is_cloud_configured():
+        print("Chroma Cloud not configured. Please set CHROMA_API_KEY, CHROMA_TENANT, and CHROMA_DATABASE in your .env file.")
         return
     
     # Initialize and start chatbot

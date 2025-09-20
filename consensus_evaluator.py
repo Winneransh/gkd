@@ -15,6 +15,9 @@ from datetime import datetime
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 
+# Chroma client factory
+from chroma_config import ChromaConfig
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,17 +29,22 @@ class ConsensusEvaluator:
     Compatible with HuggingFace embeddings pipeline.
     """
     
-    def __init__(self, google_api_keys: List[str], embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, google_api_keys: List[str], chroma_config: Optional[ChromaConfig] = None, 
+                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the consensus evaluator with multiple API keys for rate limit handling.
         
         Args:
             google_api_keys: List of Google API keys to rotate through
+            chroma_config: Chroma cloud configuration
             embedding_model: HuggingFace embedding model name (for compatibility tracking)
         """
         self.google_api_keys = google_api_keys
         self.current_key_index = 0
         self.embedding_model_name = embedding_model  # Track for pipeline compatibility
+        
+        # Initialize Chroma configuration for cloud service
+        self.chroma_config = chroma_config or ChromaConfig.from_environment()
         
         # Initialize Gemini 2.0 Flash LLM with first key
         self.llm = self._get_llm_instance()
@@ -520,10 +528,14 @@ Provide your evaluation in the following JSON structure:
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize with your API key
-    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         print("Please set your Google API key")
         exit(1)
     

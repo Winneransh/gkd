@@ -22,6 +22,10 @@ from langchain.schema import Document
 from google import genai
 from google.genai import types
 
+# Chroma client factory
+from chroma_client_factory import ChromaClientFactory
+from chroma_config import ChromaConfig
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -285,19 +289,22 @@ class EnhancedContradictionResolver:
     Updated to use HuggingFace embeddings for pipeline consistency.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db",
+    def __init__(self, google_api_key: str, chroma_config: Optional[ChromaConfig] = None,
                  embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the enhanced contradiction resolver.
         
         Args:
             google_api_key: Google API key for Gemini
-            chroma_persist_directory: Directory where ChromaDB is persisted
+            chroma_config: Chroma cloud configuration
             embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
-        self.chroma_persist_directory = chroma_persist_directory
         self.embedding_model_name = embedding_model
+        
+        # Initialize Chroma configuration for cloud service
+        self.chroma_config = chroma_config or ChromaConfig.from_environment()
+        self.chroma_factory = ChromaClientFactory(self.chroma_config)
         
         # Initialize Gemini client for grounding search
         self.gemini_client = genai.Client(api_key=google_api_key)
@@ -339,7 +346,7 @@ class EnhancedContradictionResolver:
     
     def get_vectorstore(self, collection_name: str = "legal_documents") -> Chroma:
         """
-        Get ChromaDB vectorstore with HuggingFace embeddings.
+        Get ChromaDB vectorstore with HuggingFace embeddings from cloud service.
         
         Args:
             collection_name: ChromaDB collection name
@@ -347,10 +354,9 @@ class EnhancedContradictionResolver:
         Returns:
             Chroma vectorstore instance
         """
-        return Chroma(
+        return self.chroma_factory.get_vectorstore(
             collection_name=collection_name,
-            embedding_function=self.embeddings,
-            persist_directory=self.chroma_persist_directory
+            embedding_function=self.embeddings
         )
     
     def _create_query_classifier_prompt(self) -> PromptTemplate:
@@ -892,10 +898,14 @@ Contradiction Reasons: {contradiction_reasons}
 
 # Example usage with complete pipeline integration
 if __name__ == "__main__":
-    # Initialize with your API key
-    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         print("Please set your Google API key")
         exit(1)
     

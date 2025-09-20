@@ -18,6 +18,10 @@ from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 
+# Chroma client factory
+from chroma_client_factory import ChromaClientFactory
+from chroma_config import ChromaConfig
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,19 +33,22 @@ class LLMEnhancedRAG:
     Uses HuggingFace embeddings for vector search and Gemini for LLM reasoning.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db",
+    def __init__(self, google_api_key: str, chroma_config: Optional[ChromaConfig] = None,
                  embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the LLM-Enhanced RAG system.
         
         Args:
             google_api_key: Google API key for Gemini
-            chroma_persist_directory: Directory where ChromaDB is persisted
+            chroma_config: Chroma configuration (local or cloud)
             embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
-        self.chroma_persist_directory = chroma_persist_directory
         self.embedding_model_name = embedding_model
+        
+        # Initialize Chroma Cloud configuration
+        self.chroma_config = chroma_config or ChromaConfig.from_environment()
+        self.chroma_factory = ChromaClientFactory(self.chroma_config)
         
         # Initialize Gemini 2.0 Flash LLM (keeping Gemini for reasoning)
         self.llm = ChatGoogleGenerativeAI(
@@ -214,10 +221,9 @@ Provide a direct, factual answer focusing specifically on what the search query 
         Returns:
             Chroma vectorstore instance
         """
-        return Chroma(
+        return self.chroma_factory.get_vectorstore(
             collection_name=collection_name,
-            embedding_function=self.embeddings,
-            persist_directory=self.chroma_persist_directory
+            embedding_function=self.embeddings
         )
     
     def process_all_search_angles(self, search_angles_output: Dict[str, Any], collection_name: str = "legal_documents") -> Dict[str, Any]:
@@ -549,8 +555,16 @@ Provide a direct, factual answer focusing specifically on what the search query 
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize components
-    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
+        print("Please set your Google API key in environment variables")
+        exit(1)
     
     # Import previous components
     import os

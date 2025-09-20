@@ -24,6 +24,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 
+# Chroma client factory
+from chroma_client_factory import ChromaClientFactory
+from chroma_config import ChromaConfig
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,19 +37,22 @@ class LegalDocumentClassifier:
     Handles PDF processing, ChromaDB storage with HuggingFace embeddings, and document type classification with Gemini.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db", 
+    def __init__(self, google_api_key: str, chroma_config: Optional[ChromaConfig] = None, 
                  embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the document classifier.
         
         Args:
             google_api_key: Google API key for Gemini
-            chroma_persist_directory: Directory to persist ChromaDB
+            chroma_config: Chroma configuration (local or cloud)
             embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
-        self.chroma_persist_directory = chroma_persist_directory
         self.embedding_model_name = embedding_model
+        
+        # Initialize Chroma Cloud configuration
+        self.chroma_config = chroma_config or ChromaConfig.from_environment()
+        self.chroma_factory = ChromaClientFactory(self.chroma_config)
         
         # Initialize HuggingFace embeddings
         logger.info(f"Loading HuggingFace embedding model: {embedding_model}")
@@ -225,17 +232,21 @@ Reasoning: [Brief explanation of why this classification was chosen]
                 documents.append(doc)
             
             # Create or load ChromaDB collection with HuggingFace embeddings
-            vectorstore = Chroma(
+            self.chroma_factory.create_collection_if_not_exists(
                 collection_name=collection_name,
                 embedding_function=self.embeddings,
-                persist_directory=self.chroma_persist_directory
+                metadata={"embedding_model": self.embedding_model_name}
+            )
+            
+            vectorstore = self.chroma_factory.get_vectorstore(
+                collection_name=collection_name,
+                embedding_function=self.embeddings
             )
             
             # Add documents to vector store
             vectorstore.add_documents(documents)
-            vectorstore.persist()
             
-            logger.info(f"Successfully stored {len(documents)} chunks in ChromaDB collection '{collection_name}' using {self.embedding_model_name}")
+            logger.info(f"Successfully stored {len(documents)} chunks in Chroma Cloud collection '{collection_name}' using {self.embedding_model_name}")
             
             return documents, vectorstore
             
@@ -348,10 +359,9 @@ Reasoning: [Brief explanation of why this classification was chosen]
         """
         try:
             # Load existing vectorstore
-            vectorstore = Chroma(
+            vectorstore = self.chroma_factory.get_vectorstore(
                 collection_name=collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=self.chroma_persist_directory
+                embedding_function=self.embeddings
             )
             
             # Perform similarity search
@@ -489,10 +499,14 @@ Reasoning: [Brief explanation of why this classification was chosen]
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize classifier with HuggingFace embeddings
-    GOOGLE_API_KEY = "AIzaSyCAm0TLde3cRtzSTyEScq6CQKJofriwVJI"  # Replace with your actual API key
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    if not GOOGLE_API_KEY or GOOGLE_API_KEY == "your_google_api_key_here":
+    # Get API key from environment
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    
+    if not GOOGLE_API_KEY or GOOGLE_API_KEY.strip() == "":
         print("Please set your Google API key")
         exit(1)
     
