@@ -17,6 +17,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
+from chroma_helper import get_chroma_vectorstore
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -29,18 +30,15 @@ class LLMEnhancedRAG:
     Uses HuggingFace embeddings for vector search and Gemini for LLM reasoning.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db",
-                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, google_api_key: str, embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the LLM-Enhanced RAG system.
         
         Args:
             google_api_key: Google API key for Gemini
-            chroma_persist_directory: Directory where ChromaDB is persisted
             embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
-        self.chroma_persist_directory = chroma_persist_directory
         self.embedding_model_name = embedding_model
         
         # Initialize Gemini 2.0 Flash LLM (keeping Gemini for reasoning)
@@ -214,10 +212,9 @@ Provide a direct, factual answer focusing specifically on what the search query 
         Returns:
             Chroma vectorstore instance
         """
-        return Chroma(
+        return get_chroma_vectorstore(
             collection_name=collection_name,
-            embedding_function=self.embeddings,
-            persist_directory=self.chroma_persist_directory
+            embedding_function=self.embeddings
         )
     
     def process_all_search_angles(self, search_angles_output: Dict[str, Any], collection_name: str = "legal_documents") -> Dict[str, Any]:

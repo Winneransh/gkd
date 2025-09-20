@@ -24,6 +24,7 @@ from llm_enhanced_rag import LLMEnhancedRAG
 from consensus_evaluator import ConsensusEvaluator
 from contradiction_resolver import EnhancedContradictionResolver
 from final_synthesizer import UnifiedFinalAnswerSynthesizer  # FIXED: Was FinalAnswerSynthesizer
+from chroma_helper import chroma_collection_has_data
 
 class StreamlinedPipeline:
     """
@@ -160,10 +161,10 @@ def main():
             'success': False
         }
     
-    # Check ChromaDB
-    if not os.path.exists("./chroma_db"):
+    # Check Chroma Cloud collection
+    if not chroma_collection_has_data("legal_documents"):
         return {
-            'error': 'ChromaDB folder not found. Please process documents first.',
+            'error': 'Chroma Cloud collection not found or empty. Please process documents first.',
             'success': False
         }
     

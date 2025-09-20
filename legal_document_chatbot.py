@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 import streamlined_end_to_end
+from chroma_helper import chroma_collection_has_data
 
 class LegalDocumentChatbot:
     """
@@ -111,9 +112,9 @@ def main():
         print("Please set your Google API key in GOOGLE_API_KEY variable")
         return
     
-    # Check ChromaDB
-    if not os.path.exists("./chroma_db"):
-        print("ChromaDB folder not found. Please process documents first.")
+    # Check Chroma Cloud collection
+    if not chroma_collection_has_data("legal_documents"):
+        print("Chroma Cloud collection not found or empty. Please upload/process documents first.")
         return
     
     # Initialize and start chatbot

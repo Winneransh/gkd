@@ -14,6 +14,7 @@ import uvicorn
 # Your existing imports (unchanged)
 from document_classifier import LegalDocumentClassifier
 import legal_document_chatbot
+from chroma_helper import chroma_collection_has_data
 
 app = FastAPI(title="Legal Document Assistant", version="1.0.0")
 
@@ -28,7 +29,7 @@ app.add_middleware(
 
 # Configuration
 UPLOAD_FOLDER = Path('uploads')
-GOOGLE_API_KEY = "AIzaSyBTyuRM-0x_T3Fs3ornVKvnvyM417GTOcc"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Create directories
 UPLOAD_FOLDER.mkdir(exist_ok=True)
@@ -56,7 +57,14 @@ def check_api_key():
     return GOOGLE_API_KEY and 'your_google_api_key' not in GOOGLE_API_KEY
 
 def chromadb_exists():
-    return Path("./chroma_db").exists() and any(Path("./chroma_db").iterdir())
+    # Cloud-only existence check
+    return chroma_collection_has_data("legal_documents")
+
+def check_chroma_env():
+    required = ["CHROMA_API_KEY", "CHROMA_TENANT", "CHROMA_DATABASE"]
+    missing = [k for k in required if not os.getenv(k)]
+    if missing:
+        raise HTTPException(500, f"Missing Chroma Cloud config: {', '.join(missing)}")
 
 # Routes
 @app.get("/")
@@ -72,6 +80,9 @@ async def upload_document(file: UploadFile = File(...)):
     
     if not check_api_key():
         raise HTTPException(500, "API key not configured")
+    
+    # Ensure Chroma Cloud env config is present
+    check_chroma_env()
     
     # Save temp file
     filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
@@ -108,7 +119,7 @@ async def upload_document(file: UploadFile = File(...)):
                 success=False,
                 document_type="Unknown",
                 confidence=0,
-                message="Processing failed"
+                message=f"Processing failed: {result.get('error', 'unknown error')}"
             )
     except Exception as e:
         file_path.unlink(missing_ok=True)

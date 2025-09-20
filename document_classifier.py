@@ -23,6 +23,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
+from chroma_helper import get_chroma_vectorstore
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -33,18 +34,15 @@ class LegalDocumentClassifier:
     Handles PDF processing, ChromaDB storage with HuggingFace embeddings, and document type classification with Gemini.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db", 
-                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, google_api_key: str, embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the document classifier.
         
         Args:
             google_api_key: Google API key for Gemini
-            chroma_persist_directory: Directory to persist ChromaDB
             embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
-        self.chroma_persist_directory = chroma_persist_directory
         self.embedding_model_name = embedding_model
         
         # Initialize HuggingFace embeddings
@@ -224,16 +222,14 @@ Reasoning: [Brief explanation of why this classification was chosen]
                 )
                 documents.append(doc)
             
-            # Create or load ChromaDB collection with HuggingFace embeddings
-            vectorstore = Chroma(
+            # Create or load ChromaDB collection (env-aware: local or remote)
+            vectorstore = get_chroma_vectorstore(
                 collection_name=collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=self.chroma_persist_directory
+                embedding_function=self.embeddings
             )
             
             # Add documents to vector store
             vectorstore.add_documents(documents)
-            vectorstore.persist()
             
             logger.info(f"Successfully stored {len(documents)} chunks in ChromaDB collection '{collection_name}' using {self.embedding_model_name}")
             
@@ -347,11 +343,10 @@ Reasoning: [Brief explanation of why this classification was chosen]
             List of similar documents
         """
         try:
-            # Load existing vectorstore
-            vectorstore = Chroma(
+            # Load existing vectorstore (env-aware)
+            vectorstore = get_chroma_vectorstore(
                 collection_name=collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=self.chroma_persist_directory
+                embedding_function=self.embeddings
             )
             
             # Perform similarity search

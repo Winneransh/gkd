@@ -19,6 +19,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
+from chroma_helper import get_chroma_vectorstore
 from google import genai
 from google.genai import types
 
@@ -285,18 +286,15 @@ class EnhancedContradictionResolver:
     Updated to use HuggingFace embeddings for pipeline consistency.
     """
     
-    def __init__(self, google_api_key: str, chroma_persist_directory: str = "./chroma_db",
-                 embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, google_api_key: str, embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         """
         Initialize the enhanced contradiction resolver.
         
         Args:
             google_api_key: Google API key for Gemini
-            chroma_persist_directory: Directory where ChromaDB is persisted
             embedding_model: HuggingFace embedding model name
         """
         self.google_api_key = google_api_key
-        self.chroma_persist_directory = chroma_persist_directory
         self.embedding_model_name = embedding_model
         
         # Initialize Gemini client for grounding search
@@ -347,10 +345,9 @@ class EnhancedContradictionResolver:
         Returns:
             Chroma vectorstore instance
         """
-        return Chroma(
+        return get_chroma_vectorstore(
             collection_name=collection_name,
-            embedding_function=self.embeddings,
-            persist_directory=self.chroma_persist_directory
+            embedding_function=self.embeddings
         )
     
     def _create_query_classifier_prompt(self) -> PromptTemplate:
